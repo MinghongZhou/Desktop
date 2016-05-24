@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<script src="jquery-1.10.2.min.js"></script>
+		<script>
+			$(function() {
+				
+				$(".close-btn").click(function() {
+					$(".slider").slideUp();
+				});
+				
+				$(".open-btn").click(function() {
+					$(".slider").slideDown();
+				});
+				
+				$(".toggle-btn").click(function() {
+					$(".slider").slideToggle();
+				});
+				
+				
+				
+			});
+		</script>
+	</head>
+	<body>
+		<button class="close-btn">Slide Up</button>
+		<button class="open-btn">Slide Down</button>
+		<button class="toggle-btn">Slide Toggle</button>
+		<p class="slider">Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat.</p>
+		<p>Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.</p>
+	</body>
+</html>
