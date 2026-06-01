@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Spotify Mood Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0d0d0d;
+      color: #e8e8e8;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #2a2a2a;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header h1 { font-size: 1.3rem; font-weight: 600; }
+    header span { font-size: 1.5rem; }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+
+    .hero {
+      text-align: center;
+      padding: 80px 0 60px;
+    }
+    .hero h2 { font-size: 2.2rem; font-weight: 700; margin-bottom: 12px; }
+    .hero p  { color: #888; font-size: 1.05rem; margin-bottom: 32px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #1db954;
+      color: #000;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 14px 28px;
+      border-radius: 100px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:hover { background: #1ed760; transform: scale(1.03); }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+
+    select, .btn-sm {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #e8e8e8;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .btn-sm {
+      background: #1db954;
+      color: #000;
+      font-weight: 600;
+      border: none;
+      border-radius: 100px;
+    }
+    .btn-sm:hover { background: #1ed760; }
+
+    .status {
+      text-align: center;
+      color: #888;
+      margin: 20px 0;
+      font-size: 0.95rem;
+    }
+
+    .results { display: none; }
+
+    .summary {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 16px 22px;
+      flex: 1;
+      min-width: 130px;
+      text-align: center;
+    }
+    .stat-card .val { font-size: 1.8rem; font-weight: 700; color: #1db954; }
+    .stat-card .lbl { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+
+    .chart-wrap {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+    .chart-wrap h3 { font-size: 1rem; margin-bottom: 16px; color: #aaa; }
+    #scatter { max-height: 420px; }
+
+    .moods { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+
+    .mood-card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 20px;
+      transition: border-color 0.2s;
+    }
+    .mood-card:hover { border-color: #444; }
+
+    .mood-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .mood-emoji { font-size: 1.8rem; }
+    .mood-name  { font-size: 1.1rem; font-weight: 700; }
+    .mood-count { font-size: 0.8rem; color: #888; margin-left: auto; }
+
+    .track-list { list-style: none; }
+    .track-list li {
+      padding: 7px 0;
+      border-bottom: 1px solid #222;
+      font-size: 0.88rem;
+    }
+    .track-list li:last-child { border-bottom: none; }
+    .track-list .track-name  { color: #e8e8e8; }
+    .track-list .track-artist { color: #888; font-size: 0.8rem; }
+
+    .error {
+      background: #2a0a0a;
+      border: 1px solid #5a1a1a;
+      border-radius: 12px;
+      padding: 16px 20px;
+      color: #f87171;
+      display: none;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span>🎵</span>
+  <h1>Spotify Mood Classifier</h1>
+</header>
+
+<div class="container">
+  <div id="hero" class="hero">
+    <h2>Discover your music moods</h2>
+    <p>We analyze your top Spotify tracks using K-Means clustering<br>and group them into mood playlists.</p>
+    <a href="/login" class="btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+      Connect with Spotify
+    </a>
+  </div>
+
+  <div id="analyzeSection" style="display:none">
+    <div class="controls">
+      <select id="timeRange">
+        <option value="short_term">Last 4 weeks</option>
+        <option value="medium_term" selected>Last 6 months</option>
+        <option value="long_term">All time</option>
+      </select>
+      <select id="limit">
+        <option value="20">20 tracks</option>
+        <option value="50" selected>50 tracks</option>
+      </select>
+      <button class="btn-sm" onclick="analyze()">Analyze my music</button>
+    </div>
+  </div>
+
+  <div class="error" id="error"></div>
+  <div class="status" id="status"></div>
+
+  <div class="results" id="results">
+    <div class="summary">
+      <div class="stat-card"><div class="val" id="statTracks">—</div><div class="lbl">Tracks analyzed</div></div>
+      <div class="stat-card"><div class="val" id="statMoods">—</div><div class="lbl">Moods found</div></div>
+      <div class="stat-card"><div class="val" id="statVariance">—</div><div class="lbl">PCA variance</div></div>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>Mood map (PCA projection)</h3>
+      <canvas id="scatter"></canvas>
+    </div>
+
+    <div class="moods" id="moodCards"></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ["#1db954","#f59e0b","#3b82f6","#ec4899","#8b5cf6","#14b8a6"];
+let scatterChart = null;
+
+function getToken() {
+  const p = new URLSearchParams(window.location.search);
+  return p.get("token");
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  const token = getToken();
+  if (token) {
+    document.getElementById("hero").style.display = "none";
+    document.getElementById("analyzeSection").style.display = "block";
+    document.getElementById("status").textContent = "Connected! Choose your settings and click Analyze.";
+  }
+});
+
+async function analyze() {
+  const token = getToken();
+  const timeRange = document.getElementById("timeRange").value;
+  const limit = document.getElementById("limit").value;
+
+  document.getElementById("status").textContent = "Fetching your tracks…";
+  document.getElementById("results").style.display = "none";
+  document.getElementById("error").style.display = "none";
+
+  try {
+    const res = await fetch(`/analyze?token=${token}&time_range=${timeRange}&limit=${limit}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      showError(data.detail || "Something went wrong.");
+      return;
+    }
+
+    document.getElementById("status").textContent = "";
+    renderResults(data);
+  } catch (e) {
+    showError("Network error: " + e.message);
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById("error");
+  el.textContent = msg;
+  el.style.display = "block";
+  document.getElementById("status").textContent = "";
+}
+
+function renderResults(data) {
+  document.getElementById("statTracks").textContent = data.track_count;
+  document.getElementById("statMoods").textContent = data.k;
+  document.getElementById("statVariance").textContent = (data.explained_variance * 100).toFixed(0) + "%";
+
+  // Scatter plot
+  const moods = Object.entries(data.clusters);
+  const datasets = moods.map(([mood, info], i) => ({
+    label: `${info.emoji} ${mood}`,
+    data: info.tracks.map(t => ({ x: t.x, y: t.y, name: t.name, artist: t.artist })),
+    backgroundColor: COLORS[i % COLORS.length] + "cc",
+    pointRadius: 7,
+    pointHoverRadius: 9,
+  }));
+
+  if (scatterChart) scatterChart.destroy();
+  scatterChart = new Chart(document.getElementById("scatter"), {
+    type: "scatter",
+    data: { datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#aaa" } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.raw.name} – ${ctx.raw.artist}`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: "#555" }, grid: { color: "#222" }, title: { display: true, text: "PC1", color: "#555" } },
+        y: { ticks: { color: "#555" }, grid: { color: "#222" }, title: { display: true, text: "PC2", color: "#555" } },
+      },
+    },
+  });
+
+  // Mood cards
+  const cards = document.getElementById("moodCards");
+  cards.innerHTML = moods.map(([mood, info], i) => `
+    <div class="mood-card" style="border-top: 3px solid ${COLORS[i % COLORS.length]}">
+      <div class="mood-header">
+        <span class="mood-emoji">${info.emoji}</span>
+        <span class="mood-name">${mood}</span>
+        <span class="mood-count">${info.size} tracks</span>
+      </div>
+      <ul class="track-list">
+        ${info.tracks.slice(0, 6).map(t => `
+          <li>
+            <div class="track-name">${t.name}</div>
+            <div class="track-artist">${t.artist}</div>
+          </li>
+        `).join("")}
+        ${info.tracks.length > 6 ? `<li style="color:#555">+ ${info.tracks.length - 6} more</li>` : ""}
+      </ul>
+    </div>
+  `).join("");
+
+  document.getElementById("results").style.display = "block";
+}
+</script>
+</body>
+</html>
