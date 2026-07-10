@@ -46,7 +46,9 @@ robinhood-options-bot/
     backtest/         # event-driven backtest engine, walk-forward harness, performance metrics
     broker/           # BrokerClient interface; MCP adapter + shadow/paper adapter
     execution/         # order manager, scheduler, daily run loop
-    monitoring/        # logging, alerts, daily P&L reports
+    ledger/            # append-only trade/signal/risk-check event log (SQLite/Postgres)
+    monitoring/        # alerting (webhook/email), health checks, divergence tracking
+  dashboard/            # Streamlit app: live positions, P&L, risk-limit utilization, equity curve
   tests/
   scripts/            # run_backtest.py, run_paper.py, run_live.py
   notebooks/          # exploratory research
@@ -89,27 +91,50 @@ robinhood-options-bot/
 - [ ] Position sizing, exposure caps, drawdown circuit breaker, kill switch.
 - [ ] Unit tests proving every limit actually blocks the trade it should.
 
-### Phase 4 — Backtest engine
-- [ ] Event-driven backtester using simulated option pricing.
+### Phase 4 — Observability layer (ledger, dashboard, alerting)
+- [ ] **Execution ledger**: append-only, timestamped records for every
+      signal generated, order placed/filled/rejected, and risk-check
+      outcome (pass/fail + why). SQLite to start, Postgres if it outgrows
+      that. This is the source of truth everything else reads from —
+      build it before the backtest engine so backtests and live/paper runs
+      write to the same schema and are directly comparable.
+- [ ] **Live state dashboard** (Streamlit, reading from the ledger):
+      open positions with live P&L (realized + unrealized), aggregate
+      Greeks exposure vs. caps, % of daily-loss/drawdown budget used,
+      system health (last heartbeat, last successful broker call, data
+      freshness).
+- [ ] **Historical performance analytics**: equity curve, drawdown chart,
+      win rate, profit factor, trade log — plus a **live-vs-backtest
+      divergence tracker** that flags when real (paper/live) results start
+      departing from what the simulated-pricing backtest predicted.
+- [ ] **Alerting**: push notifications (webhook to Slack/Discord/ntfy.sh,
+      or SMTP email) on risk-limit breaches, kill-switch trips, execution
+      failures, and stale/missing market data — alerts must reach the user
+      without anyone having to go look at a log.
+
+### Phase 5 — Backtest engine
+- [ ] Event-driven backtester using simulated option pricing, writing every
+      simulated trade to the same ledger schema as Phase 4.
 - [ ] Walk-forward validation (not single in-sample fit) across multiple
       market regimes (bull/bear/chop).
 - [ ] Sensitivity analysis: IV assumption error, commissions/slippage, fill
       assumptions.
 - [ ] Standard metrics: CAGR, Sharpe/Sortino, max drawdown, win rate, profit
       factor — reported with the "simulated options pricing" caveat front and
-      center.
+      center, viewable in the dashboard.
 
-### Phase 5 — Broker adapter
+### Phase 6 — Broker adapter
 - [ ] `BrokerClient` interface (quotes, chains, positions, place/cancel order).
 - [ ] Shadow/paper adapter: real quotes, simulated fills, zero real orders.
 - [ ] MCP-backed adapter wired in once the user's Robinhood MCP is available.
 
-### Phase 6 — Paper trading trial
-- [ ] Run shadow mode against live market data for a defined trial period.
+### Phase 7 — Paper trading trial
+- [ ] Run shadow mode against live market data for a defined trial period,
+      dashboard and alerting live the whole time.
 - [ ] Compare live paper results vs. backtest expectations within tolerance
-      before considering real capital.
+      (via the divergence tracker) before considering real capital.
 
-### Phase 7 — Go-live gate (explicit, manual)
+### Phase 8 — Go-live gate (explicit, manual)
 - [ ] Written go/no-go review against backtest + paper-trading results.
 - [ ] Start real capital small and capped even after go-live.
 
@@ -123,5 +148,8 @@ robinhood-options-bot/
 - Options backtesting caveat (simulated pricing, not replayed historical
   quotes) must be repeated in every backtest report — it's the single
   biggest source of false confidence in a plan like this.
-- Waiting on: user's Robinhood MCP server details before Phase 5 can be
-  completed end-to-end. Phases 0-4 can proceed independently.
+- Waiting on: user's Robinhood MCP server details before Phase 6 (broker
+  adapter) can be completed end-to-end. Phases 0-5 can proceed independently.
+- The ledger (Phase 4) is built early and shared by backtest, paper, and
+  live modes on purpose — it's what makes "does live match backtest"
+  answerable later instead of a guess.
