@@ -81,9 +81,9 @@ robinhood-options-bot/
 - [ ] Live options chain fetch adapter (stubbed until MCP is connected).
 
 ### Phase 2 — Options pricing & signal engine
-- [ ] Black-Scholes pricing + Greeks; realized-vol and IV-rank/percentile
+- [x] Black-Scholes pricing + Greeks; realized-vol and IV-rank/percentile
       calculation.
-- [ ] Entry/exit signal generation (trend/momentum filters + IV-rank timing)
+- [x] Entry/exit signal generation (trend/momentum filters + IV-rank timing)
       for each target strategy (credit spreads, iron condors, covered calls,
       cash-secured puts).
 
@@ -167,3 +167,18 @@ robinhood-options-bot/
   layer code is otherwise verified (unit tests, cache logic), but live
   fetches need either a network policy change on this environment (see
   Claude Code on the web docs) or a different data source/vendor.
+  Documented in detail in `robinhood-options-bot/README.md` under "Known
+  issues", including the three ways forward (change env network policy,
+  fetch/cache data elsewhere and commit it, or try a different vendor).
+- **2026-07-10 (Phase 2):** Black-Scholes pricing + Greeks
+  (`options_pricing/black_scholes.py`, validated against textbook reference
+  values and put-call parity), IV rank/percentile over the realized-vol
+  proxy (`options_pricing/iv_rank.py`), a synthetic option chain builder
+  bridging price history -> `OptionContract` objects
+  (`options_pricing/simulated_chain.py`), defined-risk strategy builders for
+  bull put spread / bear call spread / iron condor / cash-secured put /
+  covered call (`strategy/definitions.py`), and a trend + IV-rank signal
+  engine that defaults to credit spreads over CSP/covered-call when a trade
+  is signaled at all, since credit spreads cap max loss at (width - credit)
+  regardless of stock price (`strategy/signals.py`). 30/30 tests passing,
+  none requiring network access.

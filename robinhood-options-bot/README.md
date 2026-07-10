@@ -27,6 +27,32 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Known issues
+
+**Live price data is blocked in this Claude Code remote environment.**
+`data/price_history.py` uses `yfinance`, which calls `fc.yahoo.com`. This
+environment's outbound network proxy returns a 403 on that host
+specifically (`policy denial or upstream failure` per
+`$HTTPS_PROXY/__agentproxy/status`) -- PyPI/npm package installs work
+(they're allowlisted for `pip install`), but general internet access to
+data vendors is not. The code itself is verified by unit tests
+(cache logic, parsing, realized-vol math) and by the Black-Scholes /
+simulated-chain tests, which don't need the network -- only the actual
+`fetch_price_history()` call against live Yahoo Finance is unverified.
+
+Ways to unblock Phase 5 (backtesting needs real historical prices):
+1. Change this environment's network policy to allow outbound access to a
+   market data vendor's domain (Yahoo Finance, or a paid vendor's API).
+   See the Claude Code on the web docs for how environment network policy
+   is configured.
+2. Fetch/cache the historical data on a machine with normal internet access
+   and commit or upload the resulting Parquet files under
+   `data/historical/` (gitignored today -- would need to be un-ignored or
+   provided as a separate artifact).
+3. Point `fetch_price_history` at a different vendor whose API might be
+   reachable from this environment (untested; the current allowlist looks
+   narrow, so this isn't guaranteed to help).
+
 ## Safety
 
 `config/settings.yaml` controls `mode` (`shadow`/`live`) and
