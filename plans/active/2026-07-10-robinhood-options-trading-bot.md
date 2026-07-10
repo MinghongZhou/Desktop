@@ -153,3 +153,17 @@ robinhood-options-bot/
 - The ledger (Phase 4) is built early and shared by backtest, paper, and
   live modes on purpose — it's what makes "does live match backtest"
   answerable later instead of a guess.
+
+## Progress log
+
+- **2026-07-10:** Phase 0 (scaffolding), Phase 1 (price history + realized
+  vol), and the `BrokerClient` interface from Phase 6 (base interface +
+  `ShadowBrokerClient` + `RobinhoodMCPBrokerClient` placeholder) are built
+  under `robinhood-options-bot/`. 6/6 unit tests pass. Config enforces the
+  live-trading gate (`mode: live` requires `live_trading_enabled: true` and
+  is refused outright on the `mcp_placeholder` broker adapter).
+  **Environment constraint found:** this session's network policy blocks
+  `fc.yahoo.com` (yfinance's backend), returning 403 at the proxy. The data
+  layer code is otherwise verified (unit tests, cache logic), but live
+  fetches need either a network policy change on this environment (see
+  Claude Code on the web docs) or a different data source/vendor.

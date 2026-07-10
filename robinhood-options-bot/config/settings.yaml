@@ -1,0 +1,34 @@
+# Central configuration for the trading bot.
+# Everything here is loaded and validated by robinhood_bot.config.Settings.
+
+mode: shadow   # shadow | live  -- "live" is refused unless live_trading_enabled is also true below.
+live_trading_enabled: false  # hard gate; must be flipped explicitly and separately from `mode`.
+
+broker:
+  # Which BrokerClient implementation to use. "mcp_placeholder" raises until
+  # a real Robinhood MCP connection is wired in -- see broker/mcp_placeholder.py.
+  adapter: shadow   # shadow | mcp_placeholder
+
+universe:
+  tickers: ["SPY", "QQQ", "AAPL", "MSFT"]
+
+risk:
+  max_risk_per_trade_pct: 2.5       # % of account equity, moderate risk budget
+  max_concurrent_positions: 6
+  max_capital_deployed_pct: 60      # keep a cash/margin buffer
+  daily_loss_limit_pct: 4
+  drawdown_circuit_breaker_pct: 12  # halts new entries pending manual review
+  max_portfolio_delta: 300
+  max_portfolio_theta: -150
+  max_portfolio_vega: 500
+
+data:
+  price_history_cache_dir: "data/historical"
+  default_lookback_days: 756   # ~3 years of trading days
+
+ledger:
+  db_path: "data/ledger.sqlite3"
+
+logging:
+  level: INFO
+  json_output: false
