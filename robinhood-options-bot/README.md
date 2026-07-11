@@ -57,6 +57,41 @@ synthetic price series (`tests/test_backtest_engine.py` and friends) and
 doesn't depend on the network at all; only `fetch_price_history()`
 (called by this script) does.
 
+## Paper trading (Phase 7)
+
+```bash
+python scripts/run_paper.py --ticker SPY
+```
+
+A long-running daemon: shadow mode (simulated Black-Scholes option
+pricing, same as backtesting) against a live-refreshing underlying price
+feed, one trading day per cycle, running indefinitely. This is deliberately
+**not** real-broker execution -- it uses the exact same per-day logic the
+backtest engine uses (`backtest.engine.run_live_trading_day`, which calls
+the identical `_run_trading_day` helper `run_backtest` uses internally),
+so comparing a paper run's results against backtest expectations is
+comparing the same code path on different data, not two different
+implementations that happen to look similar.
+
+Runs as a long-lived process, not a cron job re-invoked fresh each day --
+broker and risk-engine state (positions, cash, peak equity, daily-loss
+baseline) live in memory for the life of the process. Nothing persists to
+disk between restarts yet; killing the process loses that in-memory state
+and a restart starts a fresh paper account. State persistence across
+restarts is a reasonable future addition but isn't needed for a
+process that's meant to just stay running.
+
+Wiring this to place *real* orders against a real broker (Alpaca or
+Robinhood MCP) using real option chains is deliberately a separate,
+not-yet-built code path -- swapping `ShadowBrokerClient` for a real
+adapter here would place real orders priced off simulated Black-Scholes
+chains instead of the broker's actual market, which is wrong. That's
+Phase 8 territory and needs its own dedicated signal-to-real-chain
+pathway, not just a broker swap.
+
+**This script needs real historical price data over the network**, same
+as backtesting -- see "Known issues" below.
+
 ## Dashboard
 
 Every run (backtest, paper, or live) writes to the same SQLite ledger
