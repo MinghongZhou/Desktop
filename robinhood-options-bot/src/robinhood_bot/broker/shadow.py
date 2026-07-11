@@ -20,13 +20,11 @@ from robinhood_bot.broker.base import (
     OptionContract,
     OrderLeg,
     OrderResult,
-    OrderSide,
     OrderStatus,
     Position,
     Quote,
+    signed_quantity,
 )
-
-_BUY_SIDES = {OrderSide.BUY_TO_OPEN, OrderSide.BUY_TO_CLOSE}
 
 
 class ShadowBrokerClient(BrokerClient):
@@ -101,10 +99,8 @@ class ShadowBrokerClient(BrokerClient):
         total_fill = 0.0
         for leg in legs:
             mid = (leg.contract.bid + leg.contract.ask) / 2
-            is_buy = leg.side in _BUY_SIDES
-            # Signed quantity change: buys move the position toward long,
-            # sells move it toward short -- regardless of open vs. close.
-            signed_qty = leg.quantity if is_buy else -leg.quantity
+            signed_qty = signed_quantity(leg.side, leg.quantity)
+            is_buy = signed_qty > 0
             cash_delta = -mid * 100 * leg.quantity if is_buy else mid * 100 * leg.quantity
             self._cash += cash_delta
             total_fill += mid if is_buy else -mid

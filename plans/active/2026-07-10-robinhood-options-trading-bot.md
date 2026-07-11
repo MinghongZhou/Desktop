@@ -88,8 +88,8 @@ robinhood-options-bot/
       cash-secured puts).
 
 ### Phase 3 — Risk engine
-- [ ] Position sizing, exposure caps, drawdown circuit breaker, kill switch.
-- [ ] Unit tests proving every limit actually blocks the trade it should.
+- [x] Position sizing, exposure caps, drawdown circuit breaker, kill switch.
+- [x] Unit tests proving every limit actually blocks the trade it should.
 
 ### Phase 4 — Observability layer (ledger, dashboard, alerting)
 - [ ] **Execution ledger**: append-only, timestamped records for every
@@ -182,3 +182,19 @@ robinhood-options-bot/
   is signaled at all, since credit spreads cap max loss at (width - credit)
   regardless of stock price (`strategy/signals.py`). 30/30 tests passing,
   none requiring network access.
+- **2026-07-10 (Phase 3):** Risk engine built as a stateful gate
+  (`risk/engine.py`) every proposed trade must pass. `risk/position_sizing.py`
+  bounds worst-case dollar loss per strategy shape (vertical spread, iron
+  condor, cash-secured put) and is where "no naked options" becomes an
+  actual runtime check, not just a rule in a doc -- a lone short call
+  raises `UndefinedRiskError` and is refused. `risk/portfolio_greeks.py`
+  aggregates delta/theta/vega across the portfolio plus a proposed trade
+  (delta/vega capped symmetrically, theta capped as a floor since
+  collecting theta is the point of a premium-selling bot). The engine
+  enforces, in order: kill switch -> drawdown circuit breaker (persists
+  across `mark_new_trading_day` until manually cleared) -> daily loss limit
+  -> max concurrent positions -> per-trade risk budget -> capital
+  deployment cap -> portfolio Greeks caps. 51/51 tests passing, each limit
+  has a dedicated test proving it actually blocks the trade it should
+  (including the drawdown halt surviving a new trading day, which was the
+  one most likely to have a latent bug).

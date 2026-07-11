@@ -110,6 +110,17 @@ class Account:
     positions: list[Position] = field(default_factory=list)
 
 
+_BUY_SIDES = {OrderSide.BUY_TO_OPEN, OrderSide.BUY_TO_CLOSE}
+
+
+def signed_quantity(side: OrderSide, quantity: int) -> int:
+    """Signed position-quantity change for a leg: buys move a position
+    toward long, sells move it toward short -- regardless of open vs.
+    close. Shared by the shadow broker's fill simulation and the risk
+    engine's Greeks projection so the two can't drift out of sync."""
+    return quantity if side in _BUY_SIDES else -quantity
+
+
 class BrokerClient(ABC):
     """Everything strategy/risk/backtest/execution code needs from a broker."""
 
