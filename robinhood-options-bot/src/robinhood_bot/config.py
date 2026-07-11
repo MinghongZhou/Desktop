@@ -48,6 +48,11 @@ class LoggingSettings(BaseModel):
     json_output: bool = False
 
 
+class AlertingSettings(BaseModel):
+    enabled: bool = False
+    webhook_url: str | None = None
+
+
 class Settings(BaseModel):
     mode: Literal["shadow", "live"] = "shadow"
     live_trading_enabled: bool = False
@@ -57,6 +62,7 @@ class Settings(BaseModel):
     data: DataSettings
     ledger: LedgerSettings
     logging: LoggingSettings
+    alerting: AlertingSettings = AlertingSettings()
 
     @model_validator(mode="after")
     def _enforce_live_gate(self) -> "Settings":

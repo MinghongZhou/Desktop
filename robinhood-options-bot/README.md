@@ -27,6 +27,26 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Dashboard
+
+Every run (backtest, paper, or live) writes to the same SQLite ledger
+(`config/settings.yaml` -> `ledger.db_path`, default `data/ledger.sqlite3`).
+View it with:
+
+```bash
+streamlit run dashboard/app.py
+```
+
+Shows the equity curve, drawdown, CAGR/Sharpe, and recent
+signals/risk-decisions/orders. Filter to one run via the `run_id` box in the
+sidebar, or leave it blank to see everything across all runs and modes.
+
+Alerting is off by default (`config/settings.yaml` -> `alerting.enabled`).
+Set `alerting.webhook_url` to a Slack/Discord-compatible incoming webhook
+and flip `enabled: true` to page on halt-worthy risk events (kill switch,
+drawdown circuit breaker, daily loss limit) -- routine per-trade
+rejections don't page, only conditions that stop trading entirely.
+
 ## Known issues
 
 **Live price data is blocked in this Claude Code remote environment.**

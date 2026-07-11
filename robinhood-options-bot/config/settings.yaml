@@ -32,3 +32,7 @@ ledger:
 logging:
   level: INFO
   json_output: false
+
+alerting:
+  enabled: false
+  webhook_url: null   # Slack/Discord-compatible incoming webhook URL

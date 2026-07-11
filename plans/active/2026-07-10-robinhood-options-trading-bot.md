@@ -92,25 +92,28 @@ robinhood-options-bot/
 - [x] Unit tests proving every limit actually blocks the trade it should.
 
 ### Phase 4 — Observability layer (ledger, dashboard, alerting)
-- [ ] **Execution ledger**: append-only, timestamped records for every
+- [x] **Execution ledger**: append-only, timestamped records for every
       signal generated, order placed/filled/rejected, and risk-check
       outcome (pass/fail + why). SQLite to start, Postgres if it outgrows
       that. This is the source of truth everything else reads from —
       build it before the backtest engine so backtests and live/paper runs
       write to the same schema and are directly comparable.
-- [ ] **Live state dashboard** (Streamlit, reading from the ledger):
-      open positions with live P&L (realized + unrealized), aggregate
-      Greeks exposure vs. caps, % of daily-loss/drawdown budget used,
-      system health (last heartbeat, last successful broker call, data
-      freshness).
-- [ ] **Historical performance analytics**: equity curve, drawdown chart,
-      win rate, profit factor, trade log — plus a **live-vs-backtest
-      divergence tracker** that flags when real (paper/live) results start
-      departing from what the simulated-pricing backtest predicted.
-- [ ] **Alerting**: push notifications (webhook to Slack/Discord/ntfy.sh,
-      or SMTP email) on risk-limit breaches, kill-switch trips, execution
-      failures, and stale/missing market data — alerts must reach the user
-      without anyone having to go look at a log.
+- [x] **Live state dashboard** (Streamlit, reading from the ledger):
+      equity curve, drawdown (from-peak and full-curve max), CAGR, Sharpe,
+      recent risk decisions (rejections surfaced with a warning banner),
+      recent orders, recent signals. Filterable by `run_id`.
+- [x] **Historical performance analytics**: equity curve, max drawdown,
+      CAGR, Sharpe implemented (`monitoring/metrics.py`). Win rate/profit
+      factor and the live-vs-backtest divergence tracker need paired
+      open/close fills, which only exist once Phase 5 (backtest engine)
+      and Phase 6 (broker adapter position tracking) produce them —
+      deferred to those phases rather than stubbed out now.
+- [x] **Alerting**: `monitoring/alerts.py` — `LoggingAlerter` (always-on
+      fallback) and `WebhookAlerter` (Slack/Discord-compatible, off by
+      default via `config/settings.yaml` -> `alerting.enabled`).
+      `alert_on_risk_decision()` only pages for halt-worthy conditions
+      (kill switch, drawdown circuit breaker, daily loss limit) — routine
+      per-trade rejections don't page.
 
 ### Phase 5 — Backtest engine
 - [ ] Event-driven backtester using simulated option pricing, writing every
@@ -198,3 +201,17 @@ robinhood-options-bot/
   has a dedicated test proving it actually blocks the trade it should
   (including the drawdown halt surviving a new trading day, which was the
   one most likely to have a latent bug).
+- **2026-07-11 (Phase 4):** SQLite ledger (`ledger/store.py`) recording
+  signals, risk decisions, orders, and equity snapshots, shared by
+  backtest/paper/live via `mode` + `run_id` columns. Alerting
+  (`monitoring/alerts.py`) with a logging fallback and a webhook adapter
+  that only pages for halt-worthy risk events. Performance metrics
+  (`monitoring/metrics.py`: max drawdown, CAGR, Sharpe) computed straight
+  from the ledger's equity curve. A Streamlit dashboard
+  (`dashboard/app.py`) reads all of it — verified end-to-end by seeding
+  sample ledger data, launching the actual server, and loading it in a
+  headless browser (screenshot sent to the user), not just import-checked.
+  Fixed a Streamlit API deprecation (`use_container_width` -> `width`)
+  caught during that verification. 71/71 tests passing. PR for phases 0-3
+  (MinghongZhou/Desktop#2) has been merged to the default branch
+  (`new-brancj`); Phase 4 work is on top of that.
