@@ -27,6 +27,36 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Backtesting
+
+```bash
+python scripts/run_backtest.py --ticker SPY                                   # single backtest
+python scripts/run_backtest.py --ticker SPY --n-folds 3                       # walk-forward, 3 folds
+python scripts/run_backtest.py --ticker SPY --iv-sensitivity --execution-sensitivity
+```
+
+The engine (`src/robinhood_bot/backtest/engine.py`) is event-driven: it
+walks day by day through price history, runs the same signal generation and
+`RiskEngine` gate that live/paper trading use, fills through
+`ShadowBrokerClient`, and settles expired positions automatically (real
+brokers do this for you; the shadow broker doesn't, so the backtest loop
+has to). Every signal, risk decision, order, and equity snapshot lands in
+the same ledger a paper/live run would use.
+
+`--iv-sensitivity` reruns the backtest at 0.7x/1.0x/1.3x the realized-vol
+proxy used for option pricing -- the single biggest source of false
+confidence in this project's numbers, since it's a model input standing in
+for real historical IV (see "Known issues" below). `--execution-sensitivity`
+does the same for fill quality (perfect fills vs. moderate/high slippage +
+commission), since `ShadowBrokerClient` otherwise assumes free, exact-mid
+fills.
+
+**This script needs real historical price data over the network** — see
+"Known issues" below. The backtest engine itself is fully tested against
+synthetic price series (`tests/test_backtest_engine.py` and friends) and
+doesn't depend on the network at all; only `fetch_price_history()`
+(called by this script) does.
+
 ## Dashboard
 
 Every run (backtest, paper, or live) writes to the same SQLite ledger

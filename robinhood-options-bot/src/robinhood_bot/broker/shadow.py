@@ -130,3 +130,10 @@ class ShadowBrokerClient(BrokerClient):
             "ShadowBrokerClient fills immediately; there is never a pending "
             "order to cancel."
         )
+
+    def apply_cash_adjustment(self, amount: float) -> None:
+        """Backtest-only hook for modeling commissions/fees, which
+        `place_order()` fills don't otherwise account for. Not part of
+        `BrokerClient` -- a real broker reports commission in the fill
+        itself, so this has no equivalent on the MCP adapter."""
+        self._cash += amount
