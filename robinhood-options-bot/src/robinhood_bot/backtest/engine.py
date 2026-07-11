@@ -101,34 +101,7 @@ def run_backtest(
     risk_engine = RiskEngine(risk_settings)
 
     for i in range(MIN_HISTORY_DAYS, len(price_df)):
-        as_of = price_df.index[i].to_pydatetime().replace(tzinfo=timezone.utc)
-        as_of_date = as_of.date()
-        spot = float(price_df["Close"].iloc[i])
-
-        risk_engine.mark_new_trading_day(as_of_date, broker.get_account().equity)
-        _settle_expired_positions(broker, ledger, run_id, mode, as_of_date, config.ticker, spot)
-
-        history_slice = price_df.iloc[: i + 1]
-        trend = trend_signal(history_slice, fast=TREND_FAST, slow=TREND_SLOW)
-        current_iv_rank = iv_rank.iloc[i]
-        current_vol = vol_series.iloc[i]
-
-        strategy_tag = recommend_strategy(trend, current_iv_rank, config.iv_rank_threshold)
-        ledger.record_signal(
-            run_id, mode, config.ticker, trend.value,
-            None if pd.isna(current_iv_rank) else float(current_iv_rank),
-            strategy_tag.value,
-        )
-
-        if strategy_tag is not StrategyTag.NO_TRADE and pd.notna(current_vol) and current_vol > 0:
-            _consider_new_trade(
-                broker, risk_engine, ledger, run_id, mode, config,
-                strategy_tag, spot, float(current_vol), as_of, as_of_date,
-            )
-
-        account = broker.get_account()
-        risk_engine.update_equity(account.equity)
-        ledger.record_equity_snapshot(run_id, mode, account.equity, account.cash)
+        _run_trading_day(broker, risk_engine, ledger, run_id, mode, config, price_df, vol_series, iv_rank, i)
 
     final_account = broker.get_account()
     return BacktestResult(
@@ -137,6 +110,90 @@ def run_backtest(
         final_equity=final_account.equity,
         equity_curve=ledger.equity_curve(run_id=run_id),
     )
+
+
+def run_live_trading_day(
+    broker: ShadowBrokerClient,
+    risk_engine: RiskEngine,
+    ledger: Ledger,
+    run_id: str,
+    config: BacktestConfig,
+    price_df: pd.DataFrame,
+    mode: str = "paper",
+) -> None:
+    """Runs exactly one trading day -- the LAST row of `price_df` -- through
+    the identical per-day logic `run_backtest` uses for every historical
+    day. This is what makes comparing paper/live results against backtest
+    expectations meaningful instead of apples-to-oranges: it's not
+    "similar" logic, it's the same function.
+
+    `price_df` must already include at least `MIN_HISTORY_DAYS` of history
+    ending on the day to trade. Call this once per trading day with an
+    updated `price_df`, reusing the same `broker`/`risk_engine`/`run_id`
+    across calls so state (positions, cash, peak equity, daily-loss
+    baseline) carries over -- see execution/paper_loop.py, which is what
+    actually does that in a long-running process.
+
+    Still simulates option pricing via Black-Scholes even though the
+    underlying price feed can be live/real -- this is Phase 7's "shadow
+    mode against live market data," not a real-broker execution path. A
+    real adapter (Alpaca/Robinhood MCP) placing real orders off real
+    option chains is a deliberately separate, not-yet-built code path;
+    see the plan's Phase 7/8 notes for why that's not just a broker swap.
+    """
+    if len(price_df) < MIN_HISTORY_DAYS:
+        raise ValueError(
+            f"Need at least {MIN_HISTORY_DAYS} days of price history for "
+            f"IV-rank/trend warmup; got {len(price_df)}."
+        )
+    vol_series = realized_volatility(price_df)
+    iv_rank = iv_rank_series(vol_series, window=IV_RANK_WINDOW)
+    _run_trading_day(
+        broker, risk_engine, ledger, run_id, mode, config,
+        price_df, vol_series, iv_rank, len(price_df) - 1,
+    )
+
+
+def _run_trading_day(
+    broker: ShadowBrokerClient,
+    risk_engine: RiskEngine,
+    ledger: Ledger,
+    run_id: str,
+    mode: str,
+    config: BacktestConfig,
+    price_df: pd.DataFrame,
+    vol_series: pd.Series,
+    iv_rank: pd.Series,
+    i: int,
+) -> None:
+    as_of = price_df.index[i].to_pydatetime().replace(tzinfo=timezone.utc)
+    as_of_date = as_of.date()
+    spot = float(price_df["Close"].iloc[i])
+
+    risk_engine.mark_new_trading_day(as_of_date, broker.get_account().equity)
+    _settle_expired_positions(broker, ledger, run_id, mode, as_of_date, config.ticker, spot)
+
+    history_slice = price_df.iloc[: i + 1]
+    trend = trend_signal(history_slice, fast=TREND_FAST, slow=TREND_SLOW)
+    current_iv_rank = iv_rank.iloc[i]
+    current_vol = vol_series.iloc[i]
+
+    strategy_tag = recommend_strategy(trend, current_iv_rank, config.iv_rank_threshold)
+    ledger.record_signal(
+        run_id, mode, config.ticker, trend.value,
+        None if pd.isna(current_iv_rank) else float(current_iv_rank),
+        strategy_tag.value,
+    )
+
+    if strategy_tag is not StrategyTag.NO_TRADE and pd.notna(current_vol) and current_vol > 0:
+        _consider_new_trade(
+            broker, risk_engine, ledger, run_id, mode, config,
+            strategy_tag, spot, float(current_vol), as_of, as_of_date,
+        )
+
+    account = broker.get_account()
+    risk_engine.update_equity(account.equity)
+    ledger.record_equity_snapshot(run_id, mode, account.equity, account.cash)
 
 
 def _consider_new_trade(

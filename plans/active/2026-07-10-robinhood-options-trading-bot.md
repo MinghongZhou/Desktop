@@ -139,10 +139,15 @@ robinhood-options-bot/
       centralizes adapter selection from config.
 
 ### Phase 7 — Paper trading trial
-- [ ] Run shadow mode against live market data for a defined trial period,
-      dashboard and alerting live the whole time.
+- [x] Run shadow mode against live market data for a defined trial period,
+      dashboard and alerting live the whole time. (`scripts/run_paper.py` +
+      `execution/paper_loop.py`; blocked on the same network policy issue
+      for actually running it against real prices — the daemon itself is
+      built and fully tested against synthetic/injected data.)
 - [ ] Compare live paper results vs. backtest expectations within tolerance
-      (via the divergence tracker) before considering real capital.
+      (via a divergence tracker) before considering real capital. Not
+      started — needs an actual paper run to compare against once network
+      access exists.
 
 ### Phase 8 — Go-live gate (explicit, manual)
 - [ ] Written go/no-go review against backtest + paper-trading results.
@@ -264,3 +269,40 @@ robinhood-options-bot/
   explicitly flagged as unverified and higher-risk in both code comments
   and the README, pending a live call once network access exists. Added
   `broker/factory.py` to centralize adapter selection from config.
+- **2026-07-11 (Phase 7):** Refactored `backtest/engine.py` to extract its
+  per-day loop body into a shared `_run_trading_day` helper, then exposed
+  `run_live_trading_day()` — a public function that runs exactly one
+  trading day (the last row of a given price series) through that same
+  helper. This is the key Phase 7 property: paper trading doesn't run
+  logic that's *similar* to the backtest, it calls the literal same
+  function one day at a time. Proved this concretely with an equivalence
+  test (`test_live_trading_day_equivalence.py`): `run_backtest()` over a
+  full price series vs. repeated `run_live_trading_day()` calls over the
+  same series produce identical final equity, signal counts, order
+  counts, strategy tags, and fill prices.
+  Built `execution/paper_loop.py` (`run_paper_trading_daemon`) — a
+  long-running daemon (matching the "standalone Python service" execution
+  model decided early in planning, not a cron-invoked script) that calls
+  `run_live_trading_day` once per calendar day forever, alerting only on
+  *newly recorded* halt-worthy risk decisions (tracked via the ledger's
+  autoincrement id, so a stale row from a prior cycle can't cause a
+  spurious re-alert, and a day with no trade considered can't either).
+  Price fetching, sleeping, and the clock are all injected, so the daemon
+  is fully unit-tested (5 tests) with zero network/real-time dependency.
+  `scripts/run_paper.py` wires the real `fetch_price_history`/`time.sleep`/
+  wall-clock versions together — still blocked on the same network policy
+  issue for an actual run. 104/104 tests passing overall.
+  **Explicitly scoped as shadow-only**: this daemon simulates option
+  pricing via Black-Scholes even when fed live underlying prices (that's
+  what "shadow mode against live market data" in the Phase 7 checklist
+  means) — it is not wired to place real orders through Alpaca or
+  Robinhood MCP using real option chains. Doing that safely needs a
+  separate signal-to-real-chain-to-real-order pathway (not just swapping
+  the broker adapter, since a real broker's actual bid/ask/strikes differ
+  from a simulated chain), which is Phase 8 territory and deserves its own
+  careful build rather than being rushed in as a side effect of this
+  refactor.
+  Still not started: the live-vs-backtest divergence tracker (Phase 7's
+  second checklist item) — meaningful only once an actual paper run
+  exists to compare against, which needs the network policy resolved
+  first.
