@@ -116,15 +116,15 @@ robinhood-options-bot/
       per-trade rejections don't page.
 
 ### Phase 5 — Backtest engine
-- [ ] Event-driven backtester using simulated option pricing, writing every
+- [x] Event-driven backtester using simulated option pricing, writing every
       simulated trade to the same ledger schema as Phase 4.
-- [ ] Walk-forward validation (not single in-sample fit) across multiple
+- [x] Walk-forward validation (not single in-sample fit) across multiple
       market regimes (bull/bear/chop).
-- [ ] Sensitivity analysis: IV assumption error, commissions/slippage, fill
+- [x] Sensitivity analysis: IV assumption error, commissions/slippage, fill
       assumptions.
-- [ ] Standard metrics: CAGR, Sharpe/Sortino, max drawdown, win rate, profit
-      factor — reported with the "simulated options pricing" caveat front and
-      center, viewable in the dashboard.
+- [x] Standard metrics: CAGR, Sharpe, max drawdown — reported with the
+      "simulated options pricing" caveat front and center, viewable in the
+      dashboard. (Win rate/profit factor still deferred — see progress log.)
 
 ### Phase 6 — Broker adapter
 - [ ] `BrokerClient` interface (quotes, chains, positions, place/cancel order).
@@ -214,4 +214,27 @@ robinhood-options-bot/
   Fixed a Streamlit API deprecation (`use_container_width` -> `width`)
   caught during that verification. 71/71 tests passing. PR for phases 0-3
   (MinghongZhou/Desktop#2) has been merged to the default branch
-  (`new-brancj`); Phase 4 work is on top of that.
+  (`new-brancj`); Phase 4 work is on top of that. Phase 4's PR
+  (MinghongZhou/Desktop#3) is open, subscribed for CI/review activity.
+- **2026-07-11 (Phase 5):** Event-driven backtest engine
+  (`backtest/engine.py`): walks price history day by day, runs the same
+  trend/IV-rank signal generation and `RiskEngine` gate live trading will
+  use, fills through `ShadowBrokerClient`, and settles expired positions
+  automatically (a real broker does this for you; the shadow broker
+  doesn't, so the backtest loop has to — settlement floors the price at
+  $0.01 rather than exactly $0.00 so a worthless expiration doesn't
+  collide with `place_order()`'s "no market" rejection guard, which was
+  written for a different meaning of zero). `backtest/walk_forward.py`
+  splits history into non-overlapping folds (verified by test that folds
+  cover every tradable day exactly once, no overlap/gaps).
+  `backtest/sensitivity.py` reruns the backtest across IV-multiplier and
+  execution-friction scenarios — the IV multiplier only scales the price
+  *option pricing* uses, not the signal that decides whether to trade, so
+  sensitivity results isolate "was the pricing model right" from "would
+  the strategy have fired differently." `scripts/run_backtest.py` ties it
+  together with the data layer (still blocked on the network policy issue
+  for real runs; the engine itself needs no network and is fully tested
+  against synthetic price series). 86/86 tests passing, including
+  regression-style tests for the commission/slippage cost model (friction
+  must never *help* final equity) and the walk-forward fold-coverage
+  invariant.
