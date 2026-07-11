@@ -16,7 +16,12 @@ DEFAULT_SETTINGS_PATH = REPO_ROOT / "config" / "settings.yaml"
 
 
 class BrokerSettings(BaseModel):
-    adapter: Literal["shadow", "mcp_placeholder"] = "shadow"
+    # "alpaca" is a real, connectable adapter used while Robinhood's MCP
+    # connection is unavailable. Credentials come from ALPACA_API_KEY /
+    # ALPACA_API_SECRET env vars (see broker/alpaca.py), never from this
+    # file -- don't add key fields here.
+    adapter: Literal["shadow", "mcp_placeholder", "alpaca"] = "shadow"
+    alpaca_paper: bool = True
 
 
 class UniverseSettings(BaseModel):
