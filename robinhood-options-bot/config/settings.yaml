@@ -5,9 +5,14 @@ mode: shadow   # shadow | live  -- "live" is refused unless live_trading_enabled
 live_trading_enabled: false  # hard gate; must be flipped explicitly and separately from `mode`.
 
 broker:
-  # Which BrokerClient implementation to use. "mcp_placeholder" raises until
-  # a real Robinhood MCP connection is wired in -- see broker/mcp_placeholder.py.
-  adapter: shadow   # shadow | mcp_placeholder
+  # Which BrokerClient implementation to use.
+  #   shadow          -- simulated fills, no real broker (default; used for backtesting/dry-run)
+  #   mcp_placeholder -- raises until Robinhood's MCP connection is wired in (see broker/mcp_placeholder.py)
+  #   alpaca          -- real, connectable adapter used while Robinhood MCP is unavailable
+  #                      (see broker/alpaca.py); credentials come from
+  #                      ALPACA_API_KEY / ALPACA_API_SECRET env vars, never this file.
+  adapter: shadow   # shadow | mcp_placeholder | alpaca
+  alpaca_paper: true   # true = paper trading account, false = live real-money account
 
 universe:
   tickers: ["SPY", "QQQ", "AAPL", "MSFT"]

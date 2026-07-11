@@ -127,9 +127,16 @@ robinhood-options-bot/
       dashboard. (Win rate/profit factor still deferred — see progress log.)
 
 ### Phase 6 — Broker adapter
-- [ ] `BrokerClient` interface (quotes, chains, positions, place/cancel order).
-- [ ] Shadow/paper adapter: real quotes, simulated fills, zero real orders.
-- [ ] MCP-backed adapter wired in once the user's Robinhood MCP is available.
+- [x] `BrokerClient` interface (quotes, chains, positions, place/cancel order).
+- [x] Shadow/paper adapter: real quotes, simulated fills, zero real orders.
+- [ ] MCP-backed adapter wired in once the user's Robinhood MCP is available
+      (still blocked — Robinhood's MCP has a connection issue on their end).
+- [x] Alternate real adapter (Alpaca) built as a stand-in while Robinhood's
+      MCP is unavailable — same `BrokerClient` interface, one-line config
+      swap either direction. **Unverified against a live call** (this
+      environment's network policy blocks Alpaca's API too — not a
+      Robinhood-specific problem, see progress log). `broker/factory.py`
+      centralizes adapter selection from config.
 
 ### Phase 7 — Paper trading trial
 - [ ] Run shadow mode against live market data for a defined trial period,
@@ -238,3 +245,22 @@ robinhood-options-bot/
   regression-style tests for the commission/slippage cost model (friction
   must never *help* final equity) and the walk-forward fold-coverage
   invariant.
+- **2026-07-11 (Phase 6, partial):** Robinhood's MCP has a connection issue
+  on their end, so built `broker/alpaca.py` as a real, connectable
+  stand-in adapter (free paper trading, native options support) while that
+  gets sorted out — same `BrokerClient` interface, swapping is a one-line
+  `broker.adapter` config change either direction, credentials via
+  `ALPACA_API_KEY`/`ALPACA_API_SECRET` env vars (never in
+  `settings.yaml`). **Tested this environment's ability to reach Alpaca
+  before writing any adapter code** (`curl` to `paper-api.alpaca.markets`
+  and `data.alpaca.markets`) and got the identical 403 policy-denial that
+  blocked Yahoo Finance in Phase 1 — this environment's network policy
+  blocks financial API domains generally, not Robinhood specifically, so
+  picking a different broker doesn't route around it. Built and fully
+  unit-tested the adapter anyway (97/97 tests passing) against a fake
+  transport with fabricated example payloads, with account/quote mappings
+  (stable, well-known Alpaca v2 endpoints) flagged lower-risk and the
+  options-chain/multi-leg-order mappings (newer Alpaca API surface)
+  explicitly flagged as unverified and higher-risk in both code comments
+  and the README, pending a live call once network access exists. Added
+  `broker/factory.py` to centralize adapter selection from config.

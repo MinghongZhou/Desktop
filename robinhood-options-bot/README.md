@@ -77,31 +77,60 @@ and flip `enabled: true` to page on halt-worthy risk events (kill switch,
 drawdown circuit breaker, daily loss limit) -- routine per-trade
 rejections don't page, only conditions that stop trading entirely.
 
+## Broker adapters
+
+Three `BrokerClient` implementations exist (`config/settings.yaml` ->
+`broker.adapter`): `shadow` (simulated, default), `mcp_placeholder`
+(raises until Robinhood's MCP is connected), and `alpaca` -- a real,
+connectable adapter (`broker/alpaca.py`) added while Robinhood's MCP
+connection is unavailable. Swapping between any of them is a one-line
+config change; nothing in strategy/risk/backtest/execution code depends on
+which one is active.
+
+**The Alpaca adapter is unverified against a live call.** This
+environment's network policy blocks Alpaca's API domains the same way it
+blocks Yahoo Finance's (see "Known issues" below), so none of its HTTP
+mappings have been exercised against a real response. Account/quote
+endpoints (`/v2/account`, `/v2/stocks/.../quotes/latest`) are long-stable
+Alpaca v2 APIs and lower risk; the options chain and multi-leg
+(`order_class: "mleg"`) order endpoints are newer additions to Alpaca's API
+and higher risk to have a subtly wrong field name or shape. Set
+`ALPACA_API_KEY` / `ALPACA_API_SECRET` env vars (never in
+`config/settings.yaml`) and run against a live paper account before
+trusting this with real trades -- `tests/test_broker_alpaca.py` only
+proves the adapter's own mapping logic is internally consistent against
+fabricated example payloads, not that those payloads match Alpaca's actual
+API.
+
 ## Known issues
 
-**Live price data is blocked in this Claude Code remote environment.**
-`data/price_history.py` uses `yfinance`, which calls `fc.yahoo.com`. This
-environment's outbound network proxy returns a 403 on that host
-specifically (`policy denial or upstream failure` per
+**Live price data and broker APIs are blocked in this Claude Code remote
+environment.** `data/price_history.py` uses `yfinance`, which calls
+`fc.yahoo.com`; the Alpaca adapter calls `paper-api.alpaca.markets` and
+`data.alpaca.markets`. This environment's outbound network proxy returns a
+403 on all of these specifically (`policy denial or upstream failure` per
 `$HTTPS_PROXY/__agentproxy/status`) -- PyPI/npm package installs work
 (they're allowlisted for `pip install`), but general internet access to
-data vendors is not. The code itself is verified by unit tests
-(cache logic, parsing, realized-vol math) and by the Black-Scholes /
-simulated-chain tests, which don't need the network -- only the actual
-`fetch_price_history()` call against live Yahoo Finance is unverified.
+financial data/broker vendors is not, and this doesn't appear to be
+specific to any one vendor. The code itself is verified by unit tests
+(cache logic, parsing, realized-vol math, Alpaca's own mapping logic,
+Black-Scholes/simulated-chain tests), which don't need the network -- only
+the actual live HTTP calls are unverified.
 
-Ways to unblock Phase 5 (backtesting needs real historical prices):
-1. Change this environment's network policy to allow outbound access to a
-   market data vendor's domain (Yahoo Finance, or a paid vendor's API).
-   See the Claude Code on the web docs for how environment network policy
-   is configured.
-2. Fetch/cache the historical data on a machine with normal internet access
-   and commit or upload the resulting Parquet files under
+Ways to unblock real (non-simulated) data and broker access:
+1. Change this environment's network policy to allow outbound access to
+   the relevant vendor domain(s). See the Claude Code on the web docs for
+   how environment network policy is configured. Since the block doesn't
+   appear vendor-specific, this is the fix most likely to actually work,
+   regardless of which data/broker vendor ends up in use.
+2. Fetch/cache historical price data on a machine with normal internet
+   access and commit or upload the resulting Parquet files under
    `data/historical/` (gitignored today -- would need to be un-ignored or
-   provided as a separate artifact).
-3. Point `fetch_price_history` at a different vendor whose API might be
-   reachable from this environment (untested; the current allowlist looks
-   narrow, so this isn't guaranteed to help).
+   provided as a separate artifact). Doesn't help with live broker access.
+3. Run the paper/live trading loop itself from a machine/environment with
+   normal internet access, using this repo -- the code doesn't require
+   Claude Code's remote environment specifically, only this session's
+   development work does.
 
 ## Safety
 
