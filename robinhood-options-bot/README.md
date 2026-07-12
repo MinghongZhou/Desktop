@@ -122,50 +122,59 @@ connection is unavailable. Swapping between any of them is a one-line
 config change; nothing in strategy/risk/backtest/execution code depends on
 which one is active.
 
-**The Alpaca adapter is unverified against a live call.** This
-environment's network policy blocks Alpaca's API domains the same way it
-blocks Yahoo Finance's (see "Known issues" below), so none of its HTTP
-mappings have been exercised against a real response. Account/quote
-endpoints (`/v2/account`, `/v2/stocks/.../quotes/latest`) are long-stable
-Alpaca v2 APIs and lower risk; the options chain and multi-leg
-(`order_class: "mleg"`) order endpoints are newer additions to Alpaca's API
-and higher risk to have a subtly wrong field name or shape. Set
-`ALPACA_API_KEY` / `ALPACA_API_SECRET` env vars (never in
-`config/settings.yaml`) and run against a live paper account before
-trusting this with real trades -- `tests/test_broker_alpaca.py` only
-proves the adapter's own mapping logic is internally consistent against
-fabricated example payloads, not that those payloads match Alpaca's actual
-API.
+**Verification status (updated 2026-07-11, after this environment's
+network policy was widened):** `get_account()`, `get_quote()`, and
+`get_option_chain()` have all been exercised against a real Alpaca paper
+account. `get_option_chain()` was wrong on the first live call and is now
+fixed: the underlying symbol belongs in the URL path
+(`/v1beta1/options/snapshots/{underlying}`), not as a query param on a
+path-less endpoint, and results are paginated (`next_page_token`), which
+the original version silently didn't follow (truncated to page one). Both
+are fixed and covered by tests now.
+
+`place_order()` / `cancel_order()` remain **unverified** -- deliberately
+not exercised against the live account, since doing so places a real
+(paper-money, but real) order rather than just reading data. Multi-leg
+(`order_class: "mleg"`) option orders are the highest-risk remaining
+unverified surface in `broker/alpaca.py`. Set `ALPACA_API_KEY` /
+`ALPACA_API_SECRET` env vars (never in `config/settings.yaml`) and test an
+actual order against a paper account -- deliberately, not as a side effect
+of something else -- before trusting this with real trades.
+`tests/test_broker_alpaca.py` proves the adapter's mapping logic is
+internally consistent against fabricated example payloads; for the
+verified methods above, a live call also confirmed those payload shapes
+match Alpaca's actual API.
 
 ## Known issues
 
-**Live price data and broker APIs are blocked in this Claude Code remote
-environment.** `data/price_history.py` uses `yfinance`, which calls
-`fc.yahoo.com`; the Alpaca adapter calls `paper-api.alpaca.markets` and
-`data.alpaca.markets`. This environment's outbound network proxy returns a
-403 on all of these specifically (`policy denial or upstream failure` per
-`$HTTPS_PROXY/__agentproxy/status`) -- PyPI/npm package installs work
-(they're allowlisted for `pip install`), but general internet access to
-financial data/broker vendors is not, and this doesn't appear to be
-specific to any one vendor. The code itself is verified by unit tests
-(cache logic, parsing, realized-vol math, Alpaca's own mapping logic,
-Black-Scholes/simulated-chain tests), which don't need the network -- only
-the actual live HTTP calls are unverified.
+**RESOLVED (2026-07-11): this environment's network policy was widened**
+and now reaches Alpaca's API domains (`paper-api.alpaca.markets`,
+`data.alpaca.markets`) -- confirmed via real calls, see "Broker adapters"
+above. The `mcp_placeholder`/network-block section below is left for
+historical context and because one piece of it is still relevant.
 
-Ways to unblock real (non-simulated) data and broker access:
-1. Change this environment's network policy to allow outbound access to
-   the relevant vendor domain(s). See the Claude Code on the web docs for
-   how environment network policy is configured. Since the block doesn't
-   appear vendor-specific, this is the fix most likely to actually work,
-   regardless of which data/broker vendor ends up in use.
-2. Fetch/cache historical price data on a machine with normal internet
-   access and commit or upload the resulting Parquet files under
-   `data/historical/` (gitignored today -- would need to be un-ignored or
-   provided as a separate artifact). Doesn't help with live broker access.
-3. Run the paper/live trading loop itself from a machine/environment with
-   normal internet access, using this repo -- the code doesn't require
-   Claude Code's remote environment specifically, only this session's
-   development work does.
+**`yfinance` (Yahoo Finance) still doesn't work, but for a different
+reason now.** `data/price_history.py` calls `fc.yahoo.com` /
+`query1.finance.yahoo.com`. With the network policy fixed, a plain `curl`
+to Yahoo's chart endpoint gets a clean `HTTP 429` (rate-limited) rather
+than a proxy block -- but `yfinance`'s own HTTP client (which impersonates
+a browser's TLS fingerprint) gets a connection reset, consistently, across
+retries. This looks like Yahoo Finance itself fingerprinting and blocking
+`yfinance`'s traffic specifically -- a widely-reported, worsening problem
+with that library from cloud/datacenter IPs, independent of this
+environment. **Recommendation: don't chase this further** -- switch the
+price-history data source to Alpaca's historical bars endpoint instead
+(not yet wired up; `AlpacaBrokerClient` currently only covers the
+`BrokerClient` interface, which doesn't include historical OHLCV bars).
+Alpaca is already verified reachable and authenticated in this
+environment, so this is a more reliable path than continuing to debug
+`yfinance`/Yahoo.
+
+Original (now resolved) network-block details, kept for context: PyPI/npm
+package installs were always allowlisted for `pip install`, but general
+internet access to financial data/broker vendors was blocked by default at
+environment creation -- not specific to any one vendor. Fixed by widening
+the environment's network policy (see the Claude Code on the web docs).
 
 ## Safety
 
