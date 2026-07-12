@@ -206,3 +206,34 @@ def test_export_state_before_any_trading_day_round_trips_none_fields():
     assert restored._peak_equity is None
     assert restored._daily_start_equity is None
     assert restored._current_day is None
+
+
+def test_max_trades_per_day_none_by_default_never_blocks():
+    engine = RiskEngine(make_settings())  # max_trades_per_day not set -> None
+    engine.mark_new_trading_day(date(2026, 1, 1), 100_000)
+    decision = engine.evaluate_new_trade(
+        make_account(), make_spread_legs(), open_position_groups=0, reserved_risk_capital=0,
+        trades_today=9999,
+    )
+    assert decision.approved
+
+
+def test_max_trades_per_day_blocks_once_reached():
+    engine = RiskEngine(make_settings(max_trades_per_day=3))
+    engine.mark_new_trading_day(date(2026, 1, 1), 100_000)
+    decision = engine.evaluate_new_trade(
+        make_account(), make_spread_legs(), open_position_groups=0, reserved_risk_capital=0,
+        trades_today=3,
+    )
+    assert not decision.approved
+    assert "Max trades per day" in decision.reason
+
+
+def test_max_trades_per_day_allows_up_to_the_cap():
+    engine = RiskEngine(make_settings(max_trades_per_day=3))
+    engine.mark_new_trading_day(date(2026, 1, 1), 100_000)
+    decision = engine.evaluate_new_trade(
+        make_account(), make_spread_legs(), open_position_groups=0, reserved_risk_capital=0,
+        trades_today=2,
+    )
+    assert decision.approved

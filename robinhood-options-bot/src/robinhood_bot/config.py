@@ -37,6 +37,11 @@ class RiskSettings(BaseModel):
     max_portfolio_delta: float
     max_portfolio_theta: float
     max_portfolio_vega: float
+    # None (the default) means no cap -- the original daily strategy trades
+    # roughly once a day and never needed one. Higher-frequency strategies
+    # (see backtest/intraday_engine.py) set this explicitly to bound
+    # transaction-cost bleed from overtrading.
+    max_trades_per_day: int | None = None
 
 
 class DataSettings(BaseModel):

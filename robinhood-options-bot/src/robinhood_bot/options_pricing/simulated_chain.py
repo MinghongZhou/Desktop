@@ -12,17 +12,23 @@ historical options data isn't used instead.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from robinhood_bot.broker.base import OptionContract, OptionRight
 from robinhood_bot.options_pricing.black_scholes import price_and_greeks
+
+# Approximate market close for same-day (0DTE) time-to-expiry, in UTC.
+# Doesn't account for DST (ET is UTC-4 in summer, UTC-5 in winter) -- an
+# acceptable +/-1h imprecision for a paper-trading strategy, consistent
+# with the rest of this project's approach to calendar precision.
+MARKET_CLOSE_UTC = time(20, 0)
 
 DEFAULT_BID_ASK_SPREAD_PCT = 0.03  # 3% of mid, floored below
 MIN_SPREAD = 0.02
 
 
 def generate_strike_grid(
-    spot: float, num_strikes: int = 41, pct_step: float | None = None
+    spot: float, num_strikes: int = 41, pct_step: float | None = None, increment: float | None = None,
 ) -> list[float]:
     """Symmetric strike grid around spot, rounded to a sensible increment.
 
@@ -45,8 +51,16 @@ def generate_strike_grid(
     at one-increment steps only spans roughly +/-7%, too narrow to fit a
     reasonably-OTM short strike *plus* a protective leg beyond it). 41
     strikes at one-increment steps restores comparable total range while
-    keeping the spacing fix."""
-    increment = 0.5 if spot < 25 else (1.0 if spot < 200 else 5.0)
+    keeping the spacing fix.
+
+    `increment` overrides the auto-derived rounding increment -- needed
+    for tickers whose real strike spacing doesn't match the size-based
+    default below (e.g. SPY's 0DTE strikes trade in $1 increments despite
+    its ~$570 price, unlike most stocks at that price level; the
+    intraday/0DTE engine passes this explicitly rather than accepting a
+    $5 grid it can never build a narrow same-day spread on)."""
+    if increment is None:
+        increment = 0.5 if spot < 25 else (1.0 if spot < 200 else 5.0)
     if pct_step is None:
         pct_step = increment / spot
     half = num_strikes // 2
@@ -76,7 +90,17 @@ def build_simulated_chain(
 
     contracts: list[OptionContract] = []
     for expiration in expirations:
-        time_to_expiry_years = max((expiration - as_of_date).days, 1) / 365
+        if expiration == as_of_date:
+            # Same-day (0DTE) expiration: the "at least 1 day" floor below
+            # would price every intraday checkpoint identically regardless
+            # of how many hours actually remain until close -- wrong for a
+            # strategy that enters multiple times across the day. Use
+            # actual fractional time remaining instead.
+            close_dt = datetime.combine(expiration, MARKET_CLOSE_UTC, tzinfo=as_of.tzinfo)
+            seconds_remaining = max((close_dt - as_of).total_seconds(), 60.0)
+            time_to_expiry_years = seconds_remaining / (365 * 24 * 3600)
+        else:
+            time_to_expiry_years = max((expiration - as_of_date).days, 1) / 365
         for strike in strikes:
             for right, is_call in ((OptionRight.CALL, True), (OptionRight.PUT, False)):
                 greeks = price_and_greeks(

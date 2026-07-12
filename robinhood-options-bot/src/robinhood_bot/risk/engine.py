@@ -112,15 +112,26 @@ class RiskEngine:
         proposed_legs: list[OrderLeg],
         open_position_groups: int,
         reserved_risk_capital: float,
+        trades_today: int = 0,
     ) -> RiskDecision:
         """`open_position_groups` and `reserved_risk_capital` (dollars of
         max-loss already reserved by currently open strategies) are supplied
         by the caller rather than derived from `account.positions`, since
         grouping individual option legs back into strategies is the
-        ledger/execution layer's job, not this one's."""
+        ledger/execution layer's job, not this one's. `trades_today` is
+        likewise caller-tracked (this engine doesn't know what "today" is
+        on its own) -- it's a no-op unless `max_trades_per_day` is set."""
         halt_reason = self._halt_reason()
         if halt_reason:
             return RiskDecision(False, halt_reason, 0)
+
+        if self._settings.max_trades_per_day is not None and trades_today >= self._settings.max_trades_per_day:
+            return RiskDecision(
+                False,
+                f"Max trades per day reached ({trades_today}/{self._settings.max_trades_per_day}); "
+                "no more entries today.",
+                0,
+            )
 
         if self._daily_start_equity:
             daily_pl_pct = (

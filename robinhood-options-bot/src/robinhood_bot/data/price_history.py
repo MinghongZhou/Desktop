@@ -104,16 +104,60 @@ def fetch_price_history_alpaca(
     accounts are authorized for; a paid plan with full SIP access could use
     "sip" instead for better data quality.
     """
+    return _fetch_bars_alpaca(
+        ticker, "1Day", lookback_days, cache_dir, transport,
+        cache_suffix="alpaca", tail_unit="rows", force_refresh=force_refresh,
+    )
+
+
+def fetch_intraday_bars_alpaca(
+    ticker: str,
+    timeframe: str,
+    lookback_days: int,
+    cache_dir: Path,
+    transport: AlpacaTransport,
+    force_refresh: bool = False,
+) -> pd.DataFrame:
+    """Sub-daily OHLCV bars (e.g. `timeframe="15Min"`) for the intraday
+    strategy, via the same Alpaca bars endpoint as
+    `fetch_price_history_alpaca` but with a finer timeframe. `lookback_days`
+    is calendar days of history to fetch (not bar count, since bar count
+    per day varies with timeframe) -- unlike the daily fetcher, results are
+    NOT truncated to a row count, since "last N rows" would cut off
+    mid-day for intraday data.
+
+    Cached separately per (`ticker`, `timeframe`) pair so daily and
+    intraday caches, and different intraday granularities, never collide.
+    """
+    return _fetch_bars_alpaca(
+        ticker, timeframe, lookback_days, cache_dir, transport,
+        cache_suffix=f"alpaca_{timeframe}", tail_unit="days", force_refresh=force_refresh,
+    )
+
+
+def _fetch_bars_alpaca(
+    ticker: str,
+    timeframe: str,
+    lookback_days: int,
+    cache_dir: Path,
+    transport: AlpacaTransport,
+    *,
+    cache_suffix: str,
+    tail_unit: str,
+    force_refresh: bool,
+) -> pd.DataFrame:
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = cache_dir / f"{ticker}_alpaca.parquet"
+    cache_path = cache_dir / f"{ticker}_{cache_suffix}.parquet"
 
     if not force_refresh:
         cached = _read_cache(cache_path)
         if cached is not None:
-            log.info("price_history.cache_hit", ticker=ticker, rows=len(cached), source="alpaca")
+            log.info("price_history.cache_hit", ticker=ticker, rows=len(cached),
+                      source="alpaca", timeframe=timeframe)
             return cached
 
-    log.info("price_history.fetching", ticker=ticker, lookback_days=lookback_days, source="alpaca")
+    log.info("price_history.fetching", ticker=ticker, lookback_days=lookback_days,
+              source="alpaca", timeframe=timeframe)
     start = (datetime.now(timezone.utc) - timedelta(days=int(lookback_days * 1.6))).date()
     end = datetime.now(timezone.utc).date()
 
@@ -121,7 +165,7 @@ def fetch_price_history_alpaca(
     page_token: str | None = None
     while True:
         params: dict[str, Any] = {
-            "timeframe": "1Day",
+            "timeframe": timeframe,
             "start": start.isoformat(),
             "end": end.isoformat(),
             "adjustment": "split",
@@ -144,10 +188,15 @@ def fetch_price_history_alpaca(
     df = df.set_index("t").sort_index()
     df.index.name = None
     df = df.rename(columns=_BAR_COLUMNS)[list(_BAR_COLUMNS.values())]
-    df = df.tail(lookback_days)
+    if tail_unit == "rows":
+        df = df.tail(lookback_days)
+    else:
+        cutoff = df.index.max() - timedelta(days=lookback_days)
+        df = df[df.index >= cutoff]
 
     _write_cache(df, cache_path)
-    log.info("price_history.cached", ticker=ticker, rows=len(df), path=str(cache_path), source="alpaca")
+    log.info("price_history.cached", ticker=ticker, rows=len(df), path=str(cache_path),
+              source="alpaca", timeframe=timeframe)
     return df
 
 
