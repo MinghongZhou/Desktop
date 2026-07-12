@@ -41,7 +41,12 @@ def main() -> None:
     parser.add_argument("--iv-rank-threshold", type=float, default=50.0)
     parser.add_argument("--dte-target", type=int, default=30)
     parser.add_argument("--spread-width", type=float, default=5.0)
+    parser.add_argument("--profit-target-pct", type=float, default=0.50)
+    parser.add_argument("--stop-loss-multiple", type=float, default=2.0)
+    parser.add_argument("--disable-early-exit", action="store_true")
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--max-cycles", type=int, default=None,
+                         help="Stop after this many trading days instead of running forever (useful for a bounded trial/demo run)")
     args = parser.parse_args()
 
     settings = load_settings()
@@ -56,6 +61,9 @@ def main() -> None:
         iv_rank_threshold=args.iv_rank_threshold,
         dte_target=args.dte_target,
         spread_width=args.spread_width,
+        profit_target_pct=args.profit_target_pct,
+        stop_loss_multiple=args.stop_loss_multiple,
+        enable_early_exit=not args.disable_early_exit,
     )
 
     fetch = build_price_history_fetcher(settings.data, settings.resolved_price_history_cache_dir)
@@ -78,9 +86,11 @@ def main() -> None:
     print(f"View live: streamlit run dashboard/app.py  (filter to run_id={run_id})")
 
     try:
-        run_paper_trading_daemon(
-            broker, risk_engine, ledger, run_id, config, fetch_price_df, alerter=alerter,
+        cycles = run_paper_trading_daemon(
+            broker, risk_engine, ledger, run_id, config, fetch_price_df,
+            alerter=alerter, max_cycles=args.max_cycles,
         )
+        print(f"Completed {cycles} trading day(s). Final equity: ${broker.get_account().equity:,.2f}")
     finally:
         ledger.close()
 
