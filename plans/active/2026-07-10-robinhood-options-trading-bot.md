@@ -406,3 +406,49 @@ robinhood-options-bot/
   investigate why (which trades lost, whether it's regime-specific),
   try different tickers/parameters, or treat this as a signal the
   rule-based signal design itself needs rework before going further.
+- **2026-07-12 (root-cause fixes, validated strategy improvement, live
+  paper trial, autonomous execution):** Root-caused and fixed 3 real bugs
+  found via analysis of the first live backtest: (1) `generate_strike_grid`'s
+  fixed 2.5%-of-spot step combined badly with $5 strike rounding at SPY's
+  price level, causing realized spread widths ~3x wider than configured
+  (fixed at the source, plus a `max_width_multiple` tolerance guard in
+  `bull_put_spread`/`bear_call_spread` as defense-in-depth); (2)
+  `max_portfolio_delta=300` allowed correlated same-direction spreads to
+  stack up to ~$165-180k of net directional notional on a $100k account —
+  tightened to 80; (3) `ShadowBrokerClient` never marked open positions to
+  market, so `equity` silently used fill-time pricing forever — added
+  `remark_position()` + a daily mark-to-market step in the backtest engine.
+  Also added a volatility-spike guard (refuse new entries when realized
+  vol is actively spiking, not just elevated) and, after explicit
+  discussion about curve-fitting risk, a validated (not just tuned)
+  addition: P&L-based early exit (50% profit target / 2x stop-loss
+  multiple), confirmed via 3-fold walk-forward validation and cross-ticker
+  testing (SPY/QQQ/AAPL) rather than single-dataset tuning. Net result:
+  SPY backtest CAGR went from -4.11%/Sharpe -0.62 to +6.71%/Sharpe +1.06.
+  133 tests passing at this point.
+  **Ran the first live paper-trading cycle** against real Alpaca market
+  data (`scripts/run_paper.py`), proving `run_live_trading_day()` truly
+  shares `_run_trading_day()` with the backtest engine rather than
+  running similar-but-different logic.
+  **Built state persistence** (`ShadowBrokerClient.export_state/from_state`,
+  `RiskEngine.export_state/import_state`, `execution/state_persistence.py`,
+  `--state-file` on `run_paper.py`) so the paper account survives process
+  restarts — needed because the user does not want to host a long-running
+  process on their own Mac and asked whether Claude could run/monitor the
+  trial autonomously instead. Live end-to-end testing of this surfaced two
+  more real bugs, both fixed: re-invoking the script on an already-processed
+  day opened duplicate positions (fixed by persisting `last_run_date` and
+  seeding it back in), and the daemon's default sleep-and-retry behavior on
+  a skip caused a bounded/one-shot invocation to hang for 24h instead of
+  exiting (fixed with a `wait_for_next_day` flag, off by default whenever
+  `--max-cycles` is set). 147 tests passing.
+  **Set up a Claude Code Routine** (`SPY Paper Trading Daily Cycle`,
+  weekdays 21:30 UTC) that fires into this session and runs one paper-trading
+  cycle unattended for `run_id=paper_trial_spy_002`, only surfacing to the
+  user if the risk engine halts or a real error blocks execution. Known,
+  not-yet-fully-resolved caveats: (1) the Routine fires on wall-clock
+  weekdays, not a real market-holiday calendar, so a market holiday would
+  still be treated as a "new day" using the prior close's data; (2) whether
+  this environment/container reliably stays available across many low-activity
+  days between Routine firings is untested — if it doesn't, the trial pauses
+  until manually resumed, but no data is lost (state + ledger persist to disk).
