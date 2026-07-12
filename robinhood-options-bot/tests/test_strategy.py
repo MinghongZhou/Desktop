@@ -88,6 +88,35 @@ def test_bear_call_spread_raises_when_no_higher_strike_available():
         bear_call_spread([_lone_call_contract(100.0)], short_delta=0.30, width=5.0)
 
 
+def test_bull_put_spread_rejects_realized_width_too_far_from_target():
+    """Regression test for a real finding from a live backtest: real strike
+    grids are often sparser than the requested width, and the old code
+    silently accepted whatever was closest -- 5-wide requests became
+    15-wide (3x) spreads, a materially different, riskier trade. Now it's
+    refused instead of silently taken."""
+    short = _lone_put_contract(100.0)
+    far_long = OptionContract(
+        underlying="TEST", expiration=short.expiration, strike=50.0, right=OptionRight.PUT,
+        bid=0.1, ask=0.2, last=0.15, implied_volatility=0.3,
+        delta=-0.05, gamma=0.01, theta=-0.02, vega=0.05,
+        as_of=short.as_of,
+    )
+    with pytest.raises(NoValidStrikeError, match="more than"):
+        bull_put_spread([short, far_long], short_delta=-0.30, width=5.0, max_width_multiple=1.5)
+
+
+def test_bull_put_spread_accepts_realized_width_within_tolerance():
+    short = _lone_put_contract(100.0)
+    close_long = OptionContract(
+        underlying="TEST", expiration=short.expiration, strike=93.0, right=OptionRight.PUT,
+        bid=0.5, ask=0.6, last=0.55, implied_volatility=0.3,
+        delta=-0.15, gamma=0.01, theta=-0.03, vega=0.08,
+        as_of=short.as_of,
+    )
+    legs = bull_put_spread([short, close_long], short_delta=-0.30, width=5.0, max_width_multiple=1.5)
+    assert len(legs) == 2  # 7-wide is within 1.5x of the 5-wide target -- accepted
+
+
 def test_iron_condor_combines_both_spreads(chain):
     legs = iron_condor(chain)
     assert len(legs) == 4
