@@ -20,11 +20,18 @@ class FakeAlpacaTransport(AlpacaTransport):
     def __init__(self):
         self.calls = []
         self.get_responses = {}
+        # Separate from get_responses because a real response body can
+        # itself be a JSON array (e.g. /v2/positions) -- that's not the
+        # same thing as "return these N responses in sequence" for
+        # pagination tests, so the two can't share one dict keyed by list-ness.
+        self.get_response_sequences = {}
         self.post_responses = {}
         self.delete_responses = {}
 
     def get(self, base_url, path, params=None):
         self.calls.append(("GET", base_url, path, params))
+        if path in self.get_response_sequences:
+            return self.get_response_sequences[path].pop(0)
         return self.get_responses[path]
 
     def post(self, base_url, path, json_body):
@@ -147,7 +154,7 @@ def test_place_order_maps_api_error_to_rejected_result():
 
 def test_get_option_chain_maps_snapshots():
     transport = FakeAlpacaTransport()
-    transport.get_responses["/v1beta1/options/snapshots"] = {
+    transport.get_responses["/v1beta1/options/snapshots/AAPL"] = {
         "snapshots": {
             "AAPL260116P00190000": {
                 "latestQuote": {"bp": 1.0, "ap": 1.2, "t": "2026-01-01T15:00:00Z"},
@@ -159,9 +166,48 @@ def test_get_option_chain_maps_snapshots():
     }
     broker = AlpacaBrokerClient(transport)
     chain = broker.get_option_chain("AAPL")
+
     assert len(chain) == 1
     contract = chain[0]
     assert contract.strike == 190.0
     assert contract.right is OptionRight.PUT
     assert contract.delta == -0.3
     assert contract.bid == 1.0
+
+    # underlying belongs in the URL path, not as a query param
+    _, _, path, params = transport.calls[0]
+    assert path == "/v1beta1/options/snapshots/AAPL"
+    assert "underlying_symbols" not in params
+
+
+def test_get_option_chain_follows_pagination():
+    transport = FakeAlpacaTransport()
+    transport.get_response_sequences["/v1beta1/options/snapshots/AAPL"] = [
+        {
+            "next_page_token": "page2token",
+            "snapshots": {
+                "AAPL260116P00190000": {
+                    "latestQuote": {"bp": 1.0, "ap": 1.2, "t": "2026-01-01T15:00:00Z"},
+                    "latestTrade": {"p": 1.1},
+                    "greeks": {"delta": -0.3, "gamma": 0.01, "theta": -0.05, "vega": 0.1},
+                    "impliedVolatility": 0.28,
+                },
+            },
+        },
+        {
+            "next_page_token": None,
+            "snapshots": {
+                "AAPL260116C00195000": {
+                    "latestQuote": {"bp": 2.0, "ap": 2.2, "t": "2026-01-01T15:00:00Z"},
+                    "latestTrade": {"p": 2.1},
+                    "greeks": {"delta": 0.4, "gamma": 0.01, "theta": -0.04, "vega": 0.12},
+                    "impliedVolatility": 0.30,
+                },
+            },
+        },
+    ]
+    broker = AlpacaBrokerClient(transport)
+    chain = broker.get_option_chain("AAPL")
+
+    assert len(chain) == 2  # both pages collected
+    assert transport.calls[1][3]["page_token"] == "page2token"  # second call carried the token

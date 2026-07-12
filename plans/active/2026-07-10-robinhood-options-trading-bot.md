@@ -133,10 +133,14 @@ robinhood-options-bot/
       (still blocked — Robinhood's MCP has a connection issue on their end).
 - [x] Alternate real adapter (Alpaca) built as a stand-in while Robinhood's
       MCP is unavailable — same `BrokerClient` interface, one-line config
-      swap either direction. **Unverified against a live call** (this
-      environment's network policy blocks Alpaca's API too — not a
-      Robinhood-specific problem, see progress log). `broker/factory.py`
-      centralizes adapter selection from config.
+      swap either direction. `broker/factory.py` centralizes adapter
+      selection from config. **Network policy fixed and adapter verified
+      against a live paper account 2026-07-11** — `get_account()`,
+      `get_quote()`, `get_option_chain()` all confirmed working (2 real
+      bugs found and fixed on the chain endpoint, see progress log).
+      `place_order()`/`cancel_order()` remain deliberately unverified
+      (placing a real order needs explicit approval, not a debugging
+      side effect).
 
 ### Phase 7 — Paper trading trial
 - [x] Run shadow mode against live market data for a defined trial period,
@@ -306,3 +310,41 @@ robinhood-options-bot/
   second checklist item) — meaningful only once an actual paper run
   exists to compare against, which needs the network policy resolved
   first.
+- **2026-07-11 (network policy fixed + Alpaca verified):** User widened
+  this environment's network policy. Re-tested: Alpaca's API domains now
+  return real application responses (401 unauthorized without credentials,
+  not a 403 proxy block) — confirmed fixed. Yahoo Finance is a separate,
+  unresolved story: a plain `curl` gets a clean 429 (rate-limited) now,
+  but `yfinance`'s own client gets a connection reset consistently across
+  retries — looks like Yahoo fingerprinting and blocking `yfinance`'s
+  traffic specifically, a known/worsening problem with that library from
+  cloud IPs, independent of this environment. Recommendation: stop
+  debugging `yfinance` and switch the price-history data source to
+  Alpaca's historical bars endpoint instead (not yet wired up — flagged
+  as a natural next step, not done proactively since it's new scope
+  beyond what was asked).
+  With real Alpaca API keys (paper trading, provided by the user),
+  verified `AlpacaBrokerClient` against the actual live paper account:
+  `get_account()` and `get_quote()` matched the original mapping exactly.
+  `get_option_chain()` did not — found and fixed two real bugs a fabricated-payload
+  test could never have caught: (1) the underlying symbol belongs in the
+  URL path (`/v1beta1/options/snapshots/{underlying}`), not as an
+  `underlying_symbols` query param on a path-less endpoint; (2) results
+  are paginated (`next_page_token`), which the original version silently
+  didn't follow, truncating to page one. Both fixed, with new tests
+  (including a pagination-specific test using a fake transport that
+  returns different responses across sequential calls to the same path —
+  which itself required fixing a bug in the test helper, since a naive
+  "list means paginated sequence" convention collided with `/v2/positions`,
+  whose actual response body is legitimately a JSON array).
+  `place_order()`/`cancel_order()` remain deliberately unverified — placing
+  a real order (even paper) needs explicit user approval as its own
+  deliberate act, not a side effect of debugging something else.
+  105/105 tests passing.
+  Process note: repeatedly embedding the raw API credential literally in
+  bash commands (even just in `export` statements) tripped this session's
+  security auto-mode classifier partway through — fixed by having Python
+  read `os.environ` directly instead of shell-interpolating the secret a
+  second time into the command text, which reduced redundant literal
+  exposure. Credentials were never written to any file or committed;
+  they only ever existed as shell-session environment variables.

@@ -10,15 +10,22 @@ options natively, not because it's uniquely "right" -- if Alpaca's API also
 turns out unreachable from a given environment, the fix is that
 environment's network policy, not another adapter rewrite.
 
-*** IMPORTANT: this environment's network policy blocks outbound access to
-Alpaca's API domains (confirmed via direct curl -- same 403 that blocked
-Yahoo Finance in Phase 1), so none of the HTTP mappings below have been
-exercised against a live call. Account/quote endpoints (`/v2/account`,
-`/v2/stocks/.../quotes/latest`) are long-stable, well-documented Alpaca v2
-APIs and are lower-risk. The options chain and multi-leg order endpoints
-are newer additions to Alpaca's API and are HIGHER RISK to have a subtly
-wrong field name or shape -- verify those against a live paper account
-before trusting them with real trades. See README.md's "Known issues". ***
+*** STATUS as of 2026-07-11, after the network policy was widened and
+verified against a real paper account:
+- get_account(), get_quote(): VERIFIED against a live call. Field mapping
+  correct as originally written.
+- get_option_chain(): VERIFIED, but only after fixing two real bugs the
+  live call caught -- the underlying symbol belongs in the URL path
+  (`/v1beta1/options/snapshots/{underlying}`), not as an `underlying_symbols`
+  query param on a path-less endpoint; and results are paginated
+  (`next_page_token`), which the original version didn't follow. Both are
+  fixed now (see the method for detail).
+- place_order() / cancel_order(): STILL UNVERIFIED. Deliberately not
+  exercised against the live account, since doing so places a real
+  (paper-money, but real) order -- that needs an explicit, deliberate test
+  the user has approved, not a side effect of debugging something else.
+  Multi-leg (`order_class: "mleg"`) option orders remain the highest-risk
+  unverified surface in this file. ***
 
 HTTP is behind an injectable `AlpacaTransport` so this adapter is fully
 unit-testable with zero network access -- see tests/test_broker_alpaca.py.
@@ -150,17 +157,31 @@ class AlpacaBrokerClient(BrokerClient):
     def get_option_chain(
         self, underlying: str, expiration: date | None = None
     ) -> list[OptionContract]:
-        """HIGH RISK / unverified -- see module docstring. Alpaca's options
-        snapshot endpoint shape is inferred from public docs, not exercised
-        against a live call."""
-        params: dict[str, Any] = {"underlying_symbols": underlying, "feed": "indicative"}
+        """Verified against a live paper account call on 2026-07-11. The
+        underlying goes in the URL path (`/v1beta1/options/snapshots/{underlying}`)
+        -- an earlier version of this method incorrectly passed it as an
+        `underlying_symbols` query param on a path-less endpoint, which was
+        never exercised against a live call until now. Results are also
+        paginated (`next_page_token`); a full chain needs every page, which
+        the earlier version silently didn't fetch."""
+        params: dict[str, Any] = {"feed": "indicative"}
         if expiration is not None:
             params["expiration_date"] = expiration.isoformat()
-        data = self._transport.get(DATA_BASE_URL, "/v1beta1/options/snapshots", params=params)
 
-        contracts = []
-        for occ_symbol, snapshot in data.get("snapshots", {}).items():
-            contracts.append(_snapshot_to_contract(occ_symbol, snapshot))
+        contracts: list[OptionContract] = []
+        page_token: str | None = None
+        while True:
+            page_params = dict(params)
+            if page_token is not None:
+                page_params["page_token"] = page_token
+            data = self._transport.get(
+                DATA_BASE_URL, f"/v1beta1/options/snapshots/{underlying}", params=page_params,
+            )
+            for occ_symbol, snapshot in data.get("snapshots", {}).items():
+                contracts.append(_snapshot_to_contract(occ_symbol, snapshot))
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
         return contracts
 
     def get_account(self) -> Account:
