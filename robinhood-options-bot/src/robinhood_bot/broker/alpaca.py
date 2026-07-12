@@ -10,22 +10,25 @@ options natively, not because it's uniquely "right" -- if Alpaca's API also
 turns out unreachable from a given environment, the fix is that
 environment's network policy, not another adapter rewrite.
 
-*** STATUS as of 2026-07-11, after the network policy was widened and
-verified against a real paper account:
-- get_account(), get_quote(): VERIFIED against a live call. Field mapping
-  correct as originally written.
+*** STATUS as of 2026-07-12: fully verified against a real paper account.
+- get_account(), get_quote(): VERIFIED. Field mapping correct as
+  originally written.
 - get_option_chain(): VERIFIED, but only after fixing two real bugs the
   live call caught -- the underlying symbol belongs in the URL path
   (`/v1beta1/options/snapshots/{underlying}`), not as an `underlying_symbols`
   query param on a path-less endpoint; and results are paginated
-  (`next_page_token`), which the original version didn't follow. Both are
-  fixed now (see the method for detail).
-- place_order() / cancel_order(): STILL UNVERIFIED. Deliberately not
-  exercised against the live account, since doing so places a real
-  (paper-money, but real) order -- that needs an explicit, deliberate test
-  the user has approved, not a side effect of debugging something else.
-  Multi-leg (`order_class: "mleg"`) option orders remain the highest-risk
-  unverified surface in this file. ***
+  (`next_page_token`), which the original version didn't follow.
+- place_order() / cancel_order(): VERIFIED for both single-leg and
+  multi-leg (`order_class: "mleg"`) orders, placed with a deliberately
+  unfavorable limit price (so nothing actually filled) and immediately
+  cancelled. This also caught a real bug -- not in this file, but in
+  `strategy/definitions.py`'s `bull_put_spread`/`bear_call_spread`: against
+  a chain with sparse real strike spacing (a thinly-quoted LEAPS
+  expiration), "closest available strike to target" degenerated to
+  picking the *same* strike as the short leg, producing an invalid
+  duplicate-leg order that Alpaca correctly rejected. Fixed there by
+  requiring the long leg to be strictly on the protective side of the
+  short leg, raising `NoValidStrikeError` otherwise. ***
 
 HTTP is behind an injectable `AlpacaTransport` so this adapter is fully
 unit-testable with zero network access -- see tests/test_broker_alpaca.py.
@@ -196,10 +199,8 @@ class AlpacaBrokerClient(BrokerClient):
 
     def place_order(self, legs: list[OrderLeg], strategy_tag: str,
                      limit_price: float | None = None) -> OrderResult:
-        """HIGH RISK / unverified -- see module docstring. Multi-leg
-        (`order_class: "mleg"`) option orders are a newer Alpaca API
-        surface; verify this payload shape against a live paper account
-        before trusting it with real trades."""
+        """Verified against a live paper account 2026-07-12, both single-leg
+        and multi-leg (`order_class: "mleg"`) -- see module docstring."""
         body: dict[str, Any] = {
             "time_in_force": "day",
             "type": "limit" if limit_price is not None else "market",
@@ -264,7 +265,7 @@ def _parse_timestamp(value: str) -> datetime:
 
 
 def _snapshot_to_contract(occ_symbol: str, snapshot: dict) -> OptionContract:
-    """HIGH RISK / unverified -- see module docstring."""
+    """Verified against a live paper account 2026-07-12 -- see module docstring."""
     underlying, expiration, right, strike = _parse_occ_symbol(occ_symbol)
     quote = snapshot.get("latestQuote", {})
     greeks = snapshot.get("greeks", {})
@@ -302,9 +303,14 @@ def _parse_occ_symbol(occ_symbol: str) -> tuple[str, date, OptionRight, float]:
 
 
 def _position_from_alpaca(data: dict) -> Position:
-    """HIGH RISK / unverified -- see module docstring. Alpaca represents
-    quantity as always-positive with a separate `side` field ("long"/
-    "short"); this maps that onto our signed-quantity convention."""
+    """STILL UNVERIFIED -- not because it's known-risky like the other
+    flagged mappings, but because the paper account used for verification
+    never had an open option position to map (every test order was placed
+    with a deliberately unfavorable limit price specifically so it
+    wouldn't fill). Verify this against a real filled/open position before
+    trusting it. Alpaca represents quantity as always-positive with a
+    separate `side` field ("long"/"short"); this maps that onto our
+    signed-quantity convention."""
     underlying, expiration, right, strike = _parse_occ_symbol(data["symbol"])
     qty = float(data["qty"])
     signed_qty = int(qty) if data.get("side", "long") == "long" else -int(qty)

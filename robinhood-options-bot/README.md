@@ -122,28 +122,39 @@ connection is unavailable. Swapping between any of them is a one-line
 config change; nothing in strategy/risk/backtest/execution code depends on
 which one is active.
 
-**Verification status (updated 2026-07-11, after this environment's
-network policy was widened):** `get_account()`, `get_quote()`, and
-`get_option_chain()` have all been exercised against a real Alpaca paper
-account. `get_option_chain()` was wrong on the first live call and is now
-fixed: the underlying symbol belongs in the URL path
-(`/v1beta1/options/snapshots/{underlying}`), not as a query param on a
-path-less endpoint, and results are paginated (`next_page_token`), which
-the original version silently didn't follow (truncated to page one). Both
-are fixed and covered by tests now.
+**Verification status (updated 2026-07-12): fully verified against a real
+Alpaca paper account**, including order placement.
 
-`place_order()` / `cancel_order()` remain **unverified** -- deliberately
-not exercised against the live account, since doing so places a real
-(paper-money, but real) order rather than just reading data. Multi-leg
-(`order_class: "mleg"`) option orders are the highest-risk remaining
-unverified surface in `broker/alpaca.py`. Set `ALPACA_API_KEY` /
-`ALPACA_API_SECRET` env vars (never in `config/settings.yaml`) and test an
-actual order against a paper account -- deliberately, not as a side effect
-of something else -- before trusting this with real trades.
+- `get_account()`, `get_quote()`: matched the original mapping exactly.
+- `get_option_chain()`: did NOT match on the first live call. Fixed two
+  real bugs: the underlying symbol belongs in the URL path
+  (`/v1beta1/options/snapshots/{underlying}`), not a query param on a
+  path-less endpoint; and results are paginated (`next_page_token`), which
+  the original version silently didn't follow (truncated to page one).
+- `place_order()` / `cancel_order()`: verified for both single-leg and
+  multi-leg (`order_class: "mleg"`) orders -- placed with a deliberately
+  unfavorable limit price (so nothing actually filled) and immediately
+  cancelled. This caught a real bug, but not in the Alpaca adapter itself:
+  `strategy/definitions.py`'s `bull_put_spread`/`bear_call_spread` used
+  "closest available strike to target" without requiring the long leg to
+  actually be on the protective side of the short leg. Against a chain
+  with sparse real strike spacing (a thinly-quoted LEAPS expiration), this
+  degenerated to picking the *same* strike for both legs, producing an
+  invalid duplicate-leg order Alpaca correctly rejected. Fixed by
+  requiring the long leg's strike to be strictly protective, raising
+  `NoValidStrikeError` when no such strike exists in the chain.
+- `_position_from_alpaca` (used by `get_account()` to map open option
+  positions): still genuinely unverified -- not because it's known-risky,
+  but because the paper account used for verification never had an open
+  position to map (every test order was deliberately designed not to
+  fill). Verify against a real filled/open position before trusting it.
+
+Set `ALPACA_API_KEY` / `ALPACA_API_SECRET` env vars (never in
+`config/settings.yaml`) to run these yourself.
 `tests/test_broker_alpaca.py` proves the adapter's mapping logic is
-internally consistent against fabricated example payloads; for the
-verified methods above, a live call also confirmed those payload shapes
-match Alpaca's actual API.
+internally consistent against fabricated example payloads; live calls
+additionally confirmed those payload shapes match Alpaca's actual API for
+everything except `_position_from_alpaca`.
 
 ## Known issues
 
