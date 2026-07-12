@@ -71,11 +71,16 @@ def test_commission_strictly_reduces_final_equity_when_trades_occur(price_df, le
 
 
 def test_slippage_strictly_reduces_final_equity_when_trades_occur(price_df, ledger, risk_settings):
-    base_config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10)
+    # Early exit is reactive to unrealized P&L, which slippage changes (a
+    # worse entry fill shifts the profit-target/stop-loss trigger point),
+    # so it can cascade into a genuinely different trade sequence between
+    # scenarios -- not just the same trades at worse prices. Disable it
+    # here so this test's "same trades, worse prices" comparison holds.
+    base_config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10, enable_early_exit=False)
     free_result = run_backtest(price_df, base_config, risk_settings, ledger)
 
     slipped_config = BacktestConfig(
-        ticker="TEST", iv_rank_threshold=0.0, dte_target=10, slippage_pct=0.10,
+        ticker="TEST", iv_rank_threshold=0.0, dte_target=10, slippage_pct=0.10, enable_early_exit=False,
     )
     slipped_result = run_backtest(price_df, slipped_config, risk_settings, ledger)
 
