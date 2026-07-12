@@ -28,6 +28,7 @@ risk:
   max_portfolio_vega: 500
 
 data:
+  price_history_source: alpaca   # alpaca | yfinance -- alpaca is the verified-working source
   price_history_cache_dir: "data/historical"
   default_lookback_days: 756   # ~3 years of trading days
 
