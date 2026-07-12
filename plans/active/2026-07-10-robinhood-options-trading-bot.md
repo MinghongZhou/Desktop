@@ -452,3 +452,40 @@ robinhood-options-bot/
   this environment/container reliably stays available across many low-activity
   days between Routine firings is untested — if it doesn't, the trial pauses
   until manually resumed, but no data is lost (state + ledger persist to disk).
+
+## Backtest Results Log — what's validated, what doesn't work
+
+Scannable summary of every strategy actually backtested against real
+market data, for future sessions: don't re-run a negative result expecting
+a different answer without a genuinely different design, and don't trust a
+result here that isn't marked validated. "Real data" always means real
+Alpaca historical bars, not the simulated-chain pricing model applied to
+fabricated prices — the options-pricing simulation itself is still a model
+(see the top of this doc), but the underlying price series it's fed is real.
+
+| # | Strategy | Instrument | Window tested | Result | Verdict |
+|---|---|---|---|---|---|
+| 1 | Daily 30-DTE credit spreads (trend + IV-rank signal, mark-to-market, profit-target/stop-loss exit) | Options (SPY) | ~3yr, walk-forward validated across SPY/QQQ/AAPL | CAGR +6.71%, Sharpe +1.06 | **Validated — currently running as the live paper trial** |
+| 2 | 0DTE multi-checkpoint credit spreads, first cut (daily strategy's position sizing reused unchanged) | Options (SPY) | 309 trading days | CAGR -8.11%, Sharpe -1.95, only 12/99 signals filled | **Broken** — `max_portfolio_delta` cap (tuned for the daily strategy) blocked 88% of entries; not a real read on the strategy |
+| 3 | 0DTE multi-checkpoint credit spreads, sizing recalibrated (`max_risk_per_trade_pct` 2.5%→0.3%, sized 0DTE's higher gamma/delta-per-dollar correctly) | Options (SPY) | Same 309 days | CAGR -3.01%, Sharpe -2.98, max DD 3.68%, 97 trades, 23 profit-target / 22 stop-loss / 45 settlement | **Not validated — sizing bug fixed, but no edge found.** Reuses the daily strategy's regime filter (built for a 30-day hold) at intraday cadence; that filter has no shown predictive power over a few hours. Needs a genuinely intraday-native signal, not just faster execution of the daily one, before trying again. |
+| 4 | Long/flat SMA(20/50) crossover trend-following, ATR-sized position + fixed ATR stop | Stock (SPY) | 705 days (2023–2026) | CAGR +6.87%, Sharpe 0.86, max DD 8.98% vs. buy-and-hold CAGR +20.93%/Sharpe n/a/max DD 18.98% | **Underperforms buy-and-hold** in an exceptional bull-market window |
+| 5 | Same SMA crossover strategy | Stock (NVDA, AMD, AVGO, TSM, INTC, QCOM, MU) | Same window as #4 | 0/7 beat their own buy-and-hold CAGR | **Underperforms buy-and-hold on every name tested** |
+| 6 | Same SMA crossover strategy | Stock (SPY + the 7 names above) | ~8yr (2018–2026, includes the 2020 crash and 2022 bear market) | 0/8 beat their own buy-and-hold on CAGR *or* Sharpe (SPY itself: strategy Sharpe 0.43 vs. buy-and-hold 0.94) | **Underperforms buy-and-hold even across a full cycle with real drawdowns to protect against — this is the important negative result, not #4/#5.** Likely cause: SMA crossover lags and whipsaws (SPY alone took 30 trades in 8yr) and misses the sharpest post-drawdown recovery days, which is where a disproportionate share of long-run equity returns comes from. |
+| 7 | Donchian(55) breakout entry + chandelier trailing stop (designed specifically to fix #6's lag/whipsaw problem with a momentum entry and a stop that trails up instead of staying fixed) | Stock (same 8 names) | Same ~8yr window as #6 | 0/8 beat their own buy-and-hold on CAGR *or* Sharpe. Captured **less** upside than the SMA-crossover version (e.g. SPY CAGR 1.77% vs. 3.15%), though with smaller drawdowns (SPY 9.71% vs. 20.27%) | **Also underperforms buy-and-hold.** A genuinely different, purpose-built redesign, not a tuning variant of #6 — its failure is stronger evidence than #6 alone that no long-only, defensive/trend-timing strategy design tried so far beats buy-and-hold on these names in these windows. |
+
+**Standing conclusion as of 2026-07-12:** every long-only, trend-timing
+strategy tried (2 stock variants, spanning both a raging-bull window and a
+full cycle with real bear/crash periods) loses to simply buying and
+holding the same instrument. This is very likely structural, not a tuning
+problem: these specific names (SPY riding a strong multi-year bull run,
+semiconductors riding the AI supercycle on top of that) had exceptional
+sustained positive drift over both tested windows, and *any* strategy that
+spends time out of the market — for any reason, including genuine
+risk-avoidance — pays a compounding cost against that drift. Only the
+daily 30-DTE options strategy (row 1) has cleared a real bar so far, and
+its bar was risk-adjusted absolute return, not beating buy-and-hold.
+Before trying another long-only equity-timing variant, worth deciding
+explicitly whether "beat buy-and-hold SPY" is the right bar at all (see
+the recurring direction-choice questions in this log around 2026-07-12),
+since it may not be achievable long-only without leverage or a
+fundamentally different (short-capable, or convexity-based) approach.
