@@ -7,8 +7,9 @@ everything in the ledger for the dashboard.
     python scripts/run_backtest.py --ticker SPY --n-folds 3
     python scripts/run_backtest.py --ticker SPY --iv-sensitivity --execution-sensitivity
 
-Requires network access to the price data vendor -- see README.md's "Known
-issues" section if this environment's network policy blocks it.
+Requires network access to the price data vendor (Alpaca by default, see
+config/settings.yaml -> data.price_history_source) and, when that source
+is "alpaca", ALPACA_API_KEY / ALPACA_API_SECRET env vars.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from robinhood_bot.backtest.engine import BacktestConfig, run_backtest
 from robinhood_bot.backtest.sensitivity import run_execution_sensitivity, run_iv_sensitivity
 from robinhood_bot.backtest.walk_forward import run_walk_forward
 from robinhood_bot.config import load_settings
-from robinhood_bot.data.price_history import fetch_price_history
+from robinhood_bot.data.factory import build_price_history_fetcher
 from robinhood_bot.ledger.store import Ledger
 from robinhood_bot.logging_setup import configure_logging, get_logger
 from robinhood_bot.monitoring.metrics import cagr, max_drawdown_pct, sharpe_ratio, summarize_equity_curve
@@ -60,7 +61,8 @@ def main() -> None:
     configure_logging(settings.logging)
 
     lookback_days = args.lookback_days or settings.data.default_lookback_days
-    price_df = fetch_price_history(args.ticker, lookback_days, settings.resolved_price_history_cache_dir)
+    fetch = build_price_history_fetcher(settings.data, settings.resolved_price_history_cache_dir)
+    price_df = fetch(args.ticker, lookback_days)
 
     config = BacktestConfig(
         ticker=args.ticker,

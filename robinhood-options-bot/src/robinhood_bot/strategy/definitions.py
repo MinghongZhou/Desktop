@@ -37,10 +37,20 @@ class NoValidStrikeError(ValueError):
 
 
 def bull_put_spread(
-    chain: list[OptionContract], short_delta: float = -0.30, width: float = 5.0
+    chain: list[OptionContract], short_delta: float = -0.30, width: float = 5.0,
+    max_width_multiple: float = 1.5,
 ) -> list[OrderLeg]:
     """Sell a put at `short_delta`, buy a further-OTM put `width` below it.
-    Defined max loss = width - net credit received."""
+    Defined max loss = width - net credit received.
+
+    Rejects the trade (raises NoValidStrikeError) if the closest available
+    protective strike would make the realized width more than
+    `max_width_multiple` times the requested `width`. Real strike grids
+    are often sparser than the target -- a live backtest against real SPY
+    strikes saw "5-wide" requests silently become 15-wide (3x) spreads,
+    which is a materially different, riskier trade than the one asked
+    for, not just an approximation of it. Better to skip the trade than
+    silently take on 2-3x the intended max loss."""
     short_put = find_contract_by_delta(chain, short_delta, OptionRight.PUT)
     long_strike_target = short_put.strike - width
     long_candidates = [
@@ -59,6 +69,13 @@ def bull_put_spread(
             f"{short_put.expiration} to build a bull put spread with width {width}."
         )
     long_put = min(long_candidates, key=lambda c: abs(c.strike - long_strike_target))
+    realized_width = short_put.strike - long_put.strike
+    if realized_width > width * max_width_multiple:
+        raise NoValidStrikeError(
+            f"Closest available protective put strike ({long_put.strike}) is "
+            f"{realized_width} points from the short strike ({short_put.strike}), "
+            f"more than {max_width_multiple}x the requested width ({width})."
+        )
     return [
         OrderLeg(short_put, OrderSide.SELL_TO_OPEN, QUANTITY),
         OrderLeg(long_put, OrderSide.BUY_TO_OPEN, QUANTITY),
@@ -66,10 +83,12 @@ def bull_put_spread(
 
 
 def bear_call_spread(
-    chain: list[OptionContract], short_delta: float = 0.30, width: float = 5.0
+    chain: list[OptionContract], short_delta: float = 0.30, width: float = 5.0,
+    max_width_multiple: float = 1.5,
 ) -> list[OrderLeg]:
     """Sell a call at `short_delta`, buy a further-OTM call `width` above it.
-    Defined max loss = width - net credit received."""
+    Defined max loss = width - net credit received. See bull_put_spread's
+    docstring for why `max_width_multiple` exists."""
     short_call = find_contract_by_delta(chain, short_delta, OptionRight.CALL)
     long_strike_target = short_call.strike + width
     long_candidates = [
@@ -86,6 +105,13 @@ def bear_call_spread(
             f"{short_call.expiration} to build a bear call spread with width {width}."
         )
     long_call = min(long_candidates, key=lambda c: abs(c.strike - long_strike_target))
+    realized_width = long_call.strike - short_call.strike
+    if realized_width > width * max_width_multiple:
+        raise NoValidStrikeError(
+            f"Closest available protective call strike ({long_call.strike}) is "
+            f"{realized_width} points from the short strike ({short_call.strike}), "
+            f"more than {max_width_multiple}x the requested width ({width})."
+        )
     return [
         OrderLeg(short_call, OrderSide.SELL_TO_OPEN, QUANTITY),
         OrderLeg(long_call, OrderSide.BUY_TO_OPEN, QUANTITY),

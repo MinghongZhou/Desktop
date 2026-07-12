@@ -137,3 +137,23 @@ class ShadowBrokerClient(BrokerClient):
         `BrokerClient` -- a real broker reports commission in the fill
         itself, so this has no equivalent on the MCP adapter."""
         self._cash += amount
+
+    def remark_position(self, occ_symbol: str, contract: OptionContract) -> None:
+        """Updates an open position's contract to fresh pricing/greeks for
+        accurate daily mark-to-market equity, without treating it as a
+        trade -- quantity, average_open_price, and strategy_tag are
+        preserved. A real broker marks positions to the live market
+        automatically; this shadow broker has no market data of its own,
+        so something (the backtest engine) has to tell it. Without this,
+        `get_account().equity` silently uses each position's *fill-time*
+        bid/ask forever, understating day-to-day P&L swings until the
+        position closes -- a real bug this was added to fix."""
+        existing = self._positions.get(occ_symbol)
+        if existing is None:
+            return
+        self._positions[occ_symbol] = Position(
+            contract=contract,
+            quantity=existing.quantity,
+            average_open_price=existing.average_open_price,
+            strategy_tag=existing.strategy_tag,
+        )

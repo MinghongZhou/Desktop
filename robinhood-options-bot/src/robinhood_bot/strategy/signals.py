@@ -42,12 +42,42 @@ def trend_signal(price_df: pd.DataFrame, fast: int = 20, slow: int = 50,
     return Trend.NEUTRAL
 
 
+def is_volatility_spiking(
+    vol_series: pd.Series, lookback: int = 5, spike_multiple: float = 1.3
+) -> bool:
+    """True if realized vol has jumped sharply over the last `lookback`
+    days -- a sign of an active, ongoing stress event, distinct from
+    "IV rank is elevated" (which just means vol is high relative to its
+    own trailing history, and could be high-and-stable or high-and-still-
+    rising). A walk-forward validation run found the strategy's worst
+    losses clustered in exactly this situation: IV rank was attractively
+    high, so the strategy sold premium, right as a real market selloff
+    was still accelerating (April 2025) rather than already having
+    settled into a new (higher but stable) regime. Selling into a still-
+    accelerating spike is a materially worse bet than selling once things
+    have stabilized at a new elevated level, even though IV rank alone
+    can't tell those two situations apart."""
+    if len(vol_series) < lookback + 1:
+        return False
+    current = vol_series.iloc[-1]
+    past = vol_series.iloc[-1 - lookback]
+    if pd.isna(current) or pd.isna(past) or past <= 0:
+        return False
+    return bool(current > past * spike_multiple)
+
+
 def recommend_strategy(
-    trend: Trend, iv_rank_value: float, iv_rank_threshold: float = 50.0
+    trend: Trend, iv_rank_value: float, iv_rank_threshold: float = 50.0,
+    vol_spiking: bool = False,
 ) -> StrategyTag:
     """Only recommends selling premium when IV rank clears the threshold --
     selling premium in a low-IV environment is poor risk/reward regardless
-    of trend."""
+    of trend. Also refuses to trade while volatility is actively spiking
+    (see `is_volatility_spiking`), even if IV rank looks attractive --
+    that's exactly the situation elevated IV rank can't distinguish from
+    "already-settled high vol" on its own."""
+    if vol_spiking:
+        return StrategyTag.NO_TRADE
     if pd.isna(iv_rank_value) or iv_rank_value < iv_rank_threshold:
         return StrategyTag.NO_TRADE
 

@@ -40,6 +40,11 @@ class RiskSettings(BaseModel):
 
 
 class DataSettings(BaseModel):
+    # "alpaca" is the verified-working source (see broker/alpaca.py's
+    # module docstring). "yfinance" is left available but is unreliable --
+    # Yahoo Finance appears to fingerprint and block yfinance's client
+    # specifically, even with general network access working.
+    price_history_source: Literal["alpaca", "yfinance"] = "alpaca"
     price_history_cache_dir: str
     default_lookback_days: int
 

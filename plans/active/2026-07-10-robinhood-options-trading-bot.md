@@ -386,3 +386,23 @@ robinhood-options-bot/
   107/107 tests passing. `AlpacaBrokerClient` is now fully verified end to
   end except `_position_from_alpaca`, which needs a real open position to
   test against.
+- **2026-07-12 (real backtest run — the original goal):** Added
+  `fetch_price_history_alpaca()` (Alpaca's `/v2/stocks/{symbol}/bars`,
+  paginated) and `data/factory.py` to select it via
+  `data.price_history_source` (now defaults to `alpaca`), replacing
+  `yfinance` as the default. `scripts/run_backtest.py`/`run_paper.py`
+  updated to use the factory. 116/116 tests passing.
+  **Ran the first real backtest against real market data**: 756 days
+  (~3 years) of real SPY prices via Alpaca. Result: `final_equity=$91,977.50
+  max_drawdown=12.42% cagr=-4.11% sharpe=-0.62` on default settings
+  (iv_rank_threshold=50, dte_target=30, spread_width=5, 30-day-target
+  credit spreads). The drawdown circuit breaker tripped exactly as
+  designed once losses passed the configured 12% threshold, halting new
+  entries. **This is a real, honest result: the strategy as currently
+  configured was not profitable on SPY over this period.** That's the
+  system working as intended, not a bug — the entire point of backtesting
+  before trusting a strategy with capital is to find out things like this
+  before risking money on them, not after. Next decision is the user's:
+  investigate why (which trades lost, whether it's regime-specific),
+  try different tickers/parameters, or treat this as a signal the
+  rule-based signal design itself needs rework before going further.

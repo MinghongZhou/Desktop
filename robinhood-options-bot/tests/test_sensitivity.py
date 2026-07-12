@@ -34,7 +34,11 @@ def test_execution_sensitivity_default_scenarios_present(price_df_long, ledger, 
 
 
 def test_execution_sensitivity_friction_never_helps(price_df_long, ledger, risk_settings):
-    config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10)
+    # Slippage changes entry fill prices, which shifts early-exit trigger
+    # points and can cascade into different trade sequences between
+    # scenarios -- disable it so this stays a clean "same trades, worse
+    # prices" comparison. See the equivalent note in test_backtest_engine.py.
+    config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10, enable_early_exit=False)
     results = run_execution_sensitivity(price_df_long, config, risk_settings, ledger)
 
     orders = ledger.recent_orders(run_id=results["perfect_fills"].run_id, limit=10_000)

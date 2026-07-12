@@ -23,11 +23,22 @@ risk:
   max_capital_deployed_pct: 60      # keep a cash/margin buffer
   daily_loss_limit_pct: 4
   drawdown_circuit_breaker_pct: 12  # halts new entries pending manual review
-  max_portfolio_delta: 300
+  # max_portfolio_delta was 300 -- far too loose. 1 "delta" of portfolio
+  # exposure is roughly equivalent to 1 share of the underlying, so at
+  # SPY ~$550-600, a 300 cap allowed ~$165k-180k of net directional
+  # exposure on a $100k account (more than the entire account, in one
+  # direction). A live backtest showed 3 same-direction bull put spreads
+  # stacking within days of each other right before a real market
+  # selloff (Aug 2024), losing ~$7k combined, without the delta cap ever
+  # blocking the 2nd/3rd entry. 80 caps net directional exposure at
+  # roughly 40-45% of a $100k account's notional value at SPY's price --
+  # still generous but no longer larger than the account itself.
+  max_portfolio_delta: 80
   max_portfolio_theta: -150
   max_portfolio_vega: 500
 
 data:
+  price_history_source: alpaca   # alpaca | yfinance -- alpaca is the verified-working source
   price_history_cache_dir: "data/historical"
   default_lookback_days: 756   # ~3 years of trading days
 

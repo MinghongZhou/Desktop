@@ -22,10 +22,33 @@ MIN_SPREAD = 0.02
 
 
 def generate_strike_grid(
-    spot: float, num_strikes: int = 15, pct_step: float = 0.025
+    spot: float, num_strikes: int = 41, pct_step: float | None = None
 ) -> list[float]:
-    """Symmetric strike grid around spot, rounded to a sensible increment."""
+    """Symmetric strike grid around spot, rounded to a sensible increment.
+
+    `pct_step` defaults to one rounding increment's worth of spot (e.g.
+    ~0.9% at SPY's ~$570), not a fixed percentage. A fixed 2.5% step used
+    to combine badly with the increment rounding at higher prices: at
+    SPY's level, a 2.5%-of-spot step is ~$14, which rounds to *three*
+    $5 increments apart, not one -- so "adjacent" strikes in the grid were
+    actually 15 dollars apart, silently turning every "5-wide spread"
+    request into an unintended 15-wide one. A real backtest against real
+    SPY prices caught this: it took 3x the intended max loss on several
+    trades before `strategy/definitions.py` grew a width-tolerance check
+    that (correctly) started refusing those trades -- which then also
+    surfaced this as the actual root cause, since a fine grid never needed
+    to be refused at all.
+
+    `num_strikes` went from 15 to 41 alongside that fix: a fine per-increment
+    step covers much less total dollar range for the same strike count (the
+    old 15-strike/2.5%-step grid spanned +/-17.5% of spot; a 15-strike grid
+    at one-increment steps only spans roughly +/-7%, too narrow to fit a
+    reasonably-OTM short strike *plus* a protective leg beyond it). 41
+    strikes at one-increment steps restores comparable total range while
+    keeping the spacing fix."""
     increment = 0.5 if spot < 25 else (1.0 if spot < 200 else 5.0)
+    if pct_step is None:
+        pct_step = increment / spot
     half = num_strikes // 2
     strikes = []
     for i in range(-half, half + 1):

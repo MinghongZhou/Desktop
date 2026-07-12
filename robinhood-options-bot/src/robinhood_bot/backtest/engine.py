@@ -41,7 +41,12 @@ from robinhood_bot.options_pricing.simulated_chain import build_simulated_chain,
 from robinhood_bot.risk.engine import RiskEngine
 from robinhood_bot.risk.position_sizing import UndefinedRiskError, estimate_max_loss_per_unit
 from robinhood_bot.strategy.definitions import bear_call_spread, bull_put_spread, iron_condor
-from robinhood_bot.strategy.signals import StrategyTag, recommend_strategy, trend_signal
+from robinhood_bot.strategy.signals import (
+    StrategyTag,
+    is_volatility_spiking,
+    recommend_strategy,
+    trend_signal,
+)
 
 log = get_logger(__name__)
 
@@ -68,6 +73,9 @@ class BacktestConfig:
     slippage_pct: float = 0.0          # fraction of mid, worse for the trader on each leg
     commission_per_contract: float = 0.0
     iv_multiplier: float = 1.0         # scales the realized-vol proxy fed into option pricing only
+    enable_early_exit: bool = True
+    profit_target_pct: float = 0.50    # close early once unrealized profit reaches this fraction of credit received
+    stop_loss_multiple: float = 2.0    # close early once unrealized loss reaches this multiple of credit received
 
 
 @dataclass
@@ -169,16 +177,21 @@ def _run_trading_day(
     as_of = price_df.index[i].to_pydatetime().replace(tzinfo=timezone.utc)
     as_of_date = as_of.date()
     spot = float(price_df["Close"].iloc[i])
+    current_vol = vol_series.iloc[i]
 
     risk_engine.mark_new_trading_day(as_of_date, broker.get_account().equity)
     _settle_expired_positions(broker, ledger, run_id, mode, as_of_date, config.ticker, spot)
+    _mark_open_positions_to_market(broker, config, spot, current_vol, as_of, as_of_date)
+    _manage_early_exits(broker, ledger, run_id, mode, config, as_of_date, as_of)
 
     history_slice = price_df.iloc[: i + 1]
     trend = trend_signal(history_slice, fast=TREND_FAST, slow=TREND_SLOW)
     current_iv_rank = iv_rank.iloc[i]
-    current_vol = vol_series.iloc[i]
+    vol_spiking = is_volatility_spiking(vol_series.iloc[: i + 1])
 
-    strategy_tag = recommend_strategy(trend, current_iv_rank, config.iv_rank_threshold)
+    strategy_tag = recommend_strategy(
+        trend, current_iv_rank, config.iv_rank_threshold, vol_spiking=vol_spiking,
+    )
     ledger.record_signal(
         run_id, mode, config.ticker, trend.value,
         None if pd.isna(current_iv_rank) else float(current_iv_rank),
@@ -304,6 +317,36 @@ def _reserved_risk_capital(account: Account) -> float:
     return total
 
 
+def _close_position_group(
+    broker: ShadowBrokerClient,
+    ledger: Ledger,
+    run_id: str,
+    mode: str,
+    strategy_tag: str,
+    positions: list[Position],
+    closing_price_by_symbol: dict[str, float],
+    reason_suffix: str,
+    as_of: datetime,
+) -> None:
+    """Shared by expiration settlement and early-exit management: builds
+    closing legs (BUY_TO_CLOSE for shorts, SELL_TO_CLOSE for longs) at the
+    given per-symbol closing price and places the order. `reason_suffix`
+    (e.g. "expiration_settlement", "profit_target", "stop_loss") is
+    appended to the strategy_tag so the ledger records *why* a position
+    closed, not just that it did."""
+    legs = []
+    for p in positions:
+        price = closing_price_by_symbol[p.contract.occ_symbol]
+        closing_contract = dataclasses.replace(
+            p.contract, bid=price, ask=price, last=price, as_of=as_of,
+        )
+        side = OrderSide.BUY_TO_CLOSE if p.quantity < 0 else OrderSide.SELL_TO_CLOSE
+        legs.append(OrderLeg(closing_contract, side, abs(p.quantity)))
+
+    result = broker.place_order(legs, strategy_tag=f"{strategy_tag}_{reason_suffix}")
+    ledger.record_order(run_id, mode, result)
+
+
 def _settle_expired_positions(
     broker: ShadowBrokerClient,
     ledger: Ledger,
@@ -335,18 +378,123 @@ def _settle_expired_positions(
 
     settle_ts = datetime.combine(as_of_date, datetime.min.time(), tzinfo=timezone.utc)
     for (strategy_tag, _expiration), positions in groups.items():
-        legs = []
+        closing_prices = {}
         for p in positions:
             greeks = price_and_greeks(
                 spot=spot, strike=p.contract.strike, time_to_expiry_years=0,
                 risk_free_rate=0.0, sigma=1.0, is_call=p.contract.right is OptionRight.CALL,
             )
-            settle_price = max(greeks.price, MIN_SETTLEMENT_PRICE)
-            settlement_contract = dataclasses.replace(
-                p.contract, bid=settle_price, ask=settle_price, last=settle_price, as_of=settle_ts,
-            )
-            side = OrderSide.BUY_TO_CLOSE if p.quantity < 0 else OrderSide.SELL_TO_CLOSE
-            legs.append(OrderLeg(settlement_contract, side, abs(p.quantity)))
+            closing_prices[p.contract.occ_symbol] = max(greeks.price, MIN_SETTLEMENT_PRICE)
+        _close_position_group(
+            broker, ledger, run_id, mode, strategy_tag, positions,
+            closing_prices, "expiration_settlement", settle_ts,
+        )
 
-        result = broker.place_order(legs, strategy_tag=f"{strategy_tag}_expiration_settlement")
-        ledger.record_order(run_id, mode, result)
+
+def _mark_open_positions_to_market(
+    broker: ShadowBrokerClient,
+    config: BacktestConfig,
+    spot: float,
+    vol: float,
+    as_of: datetime,
+    as_of_date: date,
+) -> None:
+    """Real brokers mark open positions to the live market automatically;
+    the shadow broker doesn't (see ShadowBrokerClient.remark_position's
+    docstring), so the backtest loop has to do it explicitly, every day,
+    for every still-open position. Without this, `get_account().equity`
+    silently uses each position's *fill-time* price forever, understating
+    real day-to-day P&L swings until the position closes -- a real bug
+    found and fixed while building the early-exit logic below, which
+    can't work correctly without accurate current marks either. Skips
+    positions expiring today; `_settle_expired_positions` handles those
+    with proper intrinsic-value pricing instead."""
+    if pd.isna(vol) or vol <= 0:
+        return  # no valid vol estimate yet (early warmup); leave marks as-is for this one day
+    account = broker.get_account()
+    for p in account.positions:
+        if p.contract.underlying != config.ticker or p.contract.expiration <= as_of_date:
+            continue
+        time_to_expiry_years = (p.contract.expiration - as_of_date).days / 365
+        greeks = price_and_greeks(
+            spot=spot, strike=p.contract.strike, time_to_expiry_years=time_to_expiry_years,
+            risk_free_rate=config.risk_free_rate, sigma=vol * config.iv_multiplier,
+            is_call=p.contract.right is OptionRight.CALL,
+        )
+        mid = max(greeks.price, MIN_SETTLEMENT_PRICE)
+        half_spread = max(mid * 0.03 / 2, 0.01)
+        updated_contract = dataclasses.replace(
+            p.contract,
+            bid=round(max(mid - half_spread, 0.0), 2),
+            ask=round(mid + half_spread, 2),
+            last=round(mid, 2),
+            delta=greeks.delta, gamma=greeks.gamma, theta=greeks.theta, vega=greeks.vega,
+            implied_volatility=vol, as_of=as_of,
+        )
+        broker.remark_position(p.contract.occ_symbol, updated_contract)
+
+
+def _manage_early_exits(
+    broker: ShadowBrokerClient,
+    ledger: Ledger,
+    run_id: str,
+    mode: str,
+    config: BacktestConfig,
+    as_of_date: date,
+    as_of: datetime,
+) -> None:
+    """Closes a position early if it's captured most of its max profit
+    (locking in gains before gamma risk increases near expiration -- a
+    standard practice among systematic premium sellers) or if unrealized
+    loss has grown too large relative to the credit collected (a
+    stop-loss, capping downside before expiration forces the full max
+    loss). Without this, a position opened weeks before a volatility
+    spike stays fully exposed for its entire remaining life regardless of
+    what happens in between -- see is_volatility_spiking's docstring in
+    strategy/signals.py for the walk-forward finding that motivated this:
+    that guard only blocks *new* entries during a spike, and does nothing
+    for positions already open when one hits.
+
+    Requires `_mark_open_positions_to_market` to have run first for
+    today's prices to be current; relies on each position's
+    `average_open_price` (preserved by both remark_position and normal
+    fills) to reconstruct the original entry credit."""
+    if not config.enable_early_exit:
+        return
+
+    account = broker.get_account()
+    groups: dict[tuple, list[Position]] = {}
+    for p in account.positions:
+        if p.contract.underlying != config.ticker or p.contract.expiration <= as_of_date:
+            continue  # today's expirations are handled by settlement instead
+        groups.setdefault((p.strategy_tag, p.contract.expiration), []).append(p)
+
+    for (strategy_tag, _expiration), positions in groups.items():
+        entry_credit = 0.0
+        current_cost_to_close = 0.0
+        for p in positions:
+            mid = (p.contract.bid + p.contract.ask) / 2
+            if p.quantity < 0:  # short leg: contributed credit at entry, costs money to close
+                entry_credit += p.average_open_price * 100 * abs(p.quantity)
+                current_cost_to_close += mid * 100 * abs(p.quantity)
+            else:  # long leg: cost debit at entry, returns money on close
+                entry_credit -= p.average_open_price * 100 * p.quantity
+                current_cost_to_close -= mid * 100 * p.quantity
+
+        if entry_credit <= 0:
+            continue  # not a net-credit position (shouldn't happen for our strategies); skip
+
+        unrealized_pnl = entry_credit - current_cost_to_close
+        if unrealized_pnl >= entry_credit * config.profit_target_pct:
+            reason = "profit_target"
+        elif unrealized_pnl <= -entry_credit * config.stop_loss_multiple:
+            reason = "stop_loss"
+        else:
+            continue
+
+        closing_prices = {
+            p.contract.occ_symbol: (p.contract.bid + p.contract.ask) / 2 for p in positions
+        }
+        _close_position_group(
+            broker, ledger, run_id, mode, strategy_tag, positions, closing_prices, reason, as_of,
+        )
