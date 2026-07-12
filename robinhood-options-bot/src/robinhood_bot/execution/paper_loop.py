@@ -44,20 +44,32 @@ def run_paper_trading_daemon(
     sleep_fn: Callable[[float], None] = time.sleep,
     clock_fn: Callable[[], date] = lambda: datetime.now(timezone.utc).date(),
     max_cycles: int | None = None,
-    on_cycle_complete: Callable[[], None] | None = None,
+    on_cycle_complete: Callable[[date], None] | None = None,
+    initial_last_run_date: date | None = None,
+    wait_for_next_day: bool = True,
 ) -> int:
     """Runs one trading day per cycle, forever (or `max_cycles` times, for
     tests/bounded runs). Each cycle: refetch price history through today,
     run exactly one trading day, alert if that day produced a new
-    halt-worthy risk decision, invoke `on_cycle_complete` (e.g. to persist
-    broker/risk-engine state to disk -- see state_persistence.py), then
-    sleep until the next cycle. Skips re-running if `clock_fn()` returns
-    the same date twice in a row (protects against waking early /
-    restarting mid-day).
+    halt-worthy risk decision, invoke `on_cycle_complete(today)` (e.g. to
+    persist broker/risk-engine state and the processed date to disk -- see
+    state_persistence.py), then sleep until the next cycle. Skips
+    re-running if `clock_fn()` returns a date that's already been
+    processed -- either seen earlier in this loop, or passed in via
+    `initial_last_run_date` from a previous process's persisted state --
+    protecting against waking early / restarting mid-day / a fresh
+    process being re-invoked for a day it already ran.
+
+    `wait_for_next_day` controls what happens on a skip: True (the
+    long-lived-process default) sleeps and checks again, since the real
+    clock will eventually advance. False returns immediately instead --
+    for a process meant to run once and exit (e.g. one Routine firing per
+    day), sleeping in-process until a new calendar date is pointless and,
+    with the default 24h sleep_seconds, means it just hangs.
 
     Returns the number of cycles actually run.
     """
-    last_run_date: date | None = None
+    last_run_date: date | None = initial_last_run_date
     cycles_run = 0
     while max_cycles is None or cycles_run < max_cycles:
         today = clock_fn()
@@ -68,7 +80,10 @@ def run_paper_trading_daemon(
             cycles_run += 1
             log.info("paper_loop.cycle_complete", run_id=run_id, as_of=str(today), cycle=cycles_run)
             if on_cycle_complete is not None:
-                on_cycle_complete()
+                on_cycle_complete(today)
+        elif not wait_for_next_day:
+            log.info("paper_loop.already_up_to_date", run_id=run_id, as_of=str(today))
+            break
         if max_cycles is not None and cycles_run >= max_cycles:
             break
         sleep_fn(sleep_seconds)

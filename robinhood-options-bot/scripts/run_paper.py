@@ -4,11 +4,13 @@
     python scripts/run_paper.py --ticker SPY
 
 Runs shadow mode (simulated option pricing) against a live-refreshing
-underlying price feed, one trading day per cycle, forever -- intended to
-run as a long-lived process (per the plan's "standalone Python service"
-execution model), not re-invoked fresh via cron. Broker and risk-engine
-state live in memory for the life of the process; killing and restarting
-it starts a fresh account, since nothing here persists state to disk yet.
+underlying price feed, one trading day per cycle. Can run as a long-lived
+process (per the plan's original "standalone Python service" execution
+model) or be re-invoked fresh once per day (e.g. by a Claude Code
+Routine) -- broker/risk-engine state and the last processed trading day
+are persisted to --state-file after every cycle and reloaded on startup,
+so a fresh invocation resumes the same paper account instead of resetting
+to a new one, and safely no-ops if re-run for a day it already processed.
 
 Requires network access to the price data vendor (Alpaca by default, see
 config/settings.yaml -> data.price_history_source) and, when that source
@@ -90,27 +92,35 @@ def main() -> None:
 
     restored = load_state(state_path, settings.risk)
     if restored is not None:
-        broker, risk_engine = restored
+        broker, risk_engine, initial_last_run_date = restored
         log.info("run_paper.resuming", run_id=run_id, state_file=str(state_path),
-                  equity=broker.get_account().equity)
+                  equity=broker.get_account().equity, last_run_date=str(initial_last_run_date))
         print(f"Resuming from saved state ({state_path}). Equity: ${broker.get_account().equity:,.2f}")
+        if initial_last_run_date is not None:
+            print(f"Last trading day already processed: {initial_last_run_date}")
     else:
         broker = ShadowBrokerClient(starting_cash=config.starting_cash)
         risk_engine = RiskEngine(settings.risk)
+        initial_last_run_date = None
         log.info("run_paper.starting", ticker=args.ticker, run_id=run_id, starting_cash=config.starting_cash)
         print(f"Paper trading started. run_id={run_id}")
 
     ledger = Ledger(settings.resolved_ledger_db_path)
     print(f"View live: streamlit run dashboard/app.py  (filter to run_id={run_id})")
 
-    def persist_state() -> None:
-        save_state(state_path, broker, risk_engine)
+    def persist_state(last_run_date) -> None:
+        save_state(state_path, broker, risk_engine, last_run_date)
 
     try:
         cycles = run_paper_trading_daemon(
             broker, risk_engine, ledger, run_id, config, fetch_price_df,
             alerter=alerter, max_cycles=args.max_cycles, on_cycle_complete=persist_state,
+            initial_last_run_date=initial_last_run_date,
+            wait_for_next_day=args.max_cycles is None,
         )
+        if cycles == 0:
+            print(f"Nothing to do -- today's trading day was already processed "
+                  f"(last run: {initial_last_run_date}).")
         print(f"Completed {cycles} trading day(s). Final equity: ${broker.get_account().equity:,.2f}")
     finally:
         ledger.close()

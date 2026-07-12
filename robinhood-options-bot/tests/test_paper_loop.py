@@ -165,7 +165,54 @@ def test_on_cycle_complete_fires_once_per_completed_cycle_not_after_skips(ledger
         # Same date repeated once (a skipped cycle) must not trigger a callback.
         clock_fn=FakeClock(date(2026, 1, 1), days=[0, 0, 1, 2]),
         max_cycles=3,
-        on_cycle_complete=lambda: calls.append(True),
+        on_cycle_complete=lambda d: calls.append(d),
     )
     assert cycles == 3
     assert len(calls) == 3
+    assert calls == [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)]
+
+
+def test_initial_last_run_date_prevents_reprocessing_a_day_a_prior_process_already_ran(ledger, risk_settings):
+    """Regression test: without seeding initial_last_run_date, a fresh
+    process invocation re-invoked for a day already processed by a
+    previous invocation would open a second, duplicate set of positions
+    for that day."""
+    broker = ShadowBrokerClient(starting_cash=100_000)
+    risk_engine = RiskEngine(risk_settings)
+    config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10)
+    fetch_price_df = make_growing_price_feed(max_extra_days=5)
+
+    calls = []
+    cycles = run_paper_trading_daemon(
+        broker, risk_engine, ledger, "paper_run", config, fetch_price_df,
+        sleep_fn=lambda seconds: None,
+        clock_fn=FakeClock(date(2026, 1, 1), days=[0, 1, 2]),
+        max_cycles=2,
+        initial_last_run_date=date(2026, 1, 1),  # as if a prior process already ran day 0
+        on_cycle_complete=lambda d: calls.append(d),
+    )
+    assert cycles == 2  # day 0 skipped as already-processed; days 1 and 2 run
+    assert calls == [date(2026, 1, 2), date(2026, 1, 3)]
+
+
+def test_wait_for_next_day_false_returns_immediately_instead_of_sleeping(ledger, risk_settings):
+    """Regression test: a one-shot invocation (e.g. one Routine firing per
+    day) re-run for a day already processed must exit promptly instead of
+    blocking in sleep_fn waiting for a new calendar date that will never
+    arrive within this process."""
+    broker = ShadowBrokerClient(starting_cash=100_000)
+    risk_engine = RiskEngine(risk_settings)
+    config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10)
+    fetch_price_df = make_growing_price_feed(max_extra_days=5)
+
+    sleep_calls = []
+    cycles = run_paper_trading_daemon(
+        broker, risk_engine, ledger, "paper_run", config, fetch_price_df,
+        sleep_fn=lambda seconds: sleep_calls.append(seconds),
+        clock_fn=FakeClock(date(2026, 1, 1), days=[0]),
+        max_cycles=1,
+        initial_last_run_date=date(2026, 1, 1),  # today already processed by a prior invocation
+        wait_for_next_day=False,
+    )
+    assert cycles == 0
+    assert sleep_calls == []  # must not have slept at all
