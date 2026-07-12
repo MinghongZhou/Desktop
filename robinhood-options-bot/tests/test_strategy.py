@@ -13,7 +13,13 @@ from robinhood_bot.strategy.definitions import (
     covered_call,
     iron_condor,
 )
-from robinhood_bot.strategy.signals import StrategyTag, Trend, recommend_strategy, trend_signal
+from robinhood_bot.strategy.signals import (
+    StrategyTag,
+    Trend,
+    is_volatility_spiking,
+    recommend_strategy,
+    trend_signal,
+)
 
 
 @pytest.fixture
@@ -142,3 +148,32 @@ def test_recommend_strategy_maps_trend_to_defined_risk_spread():
     assert recommend_strategy(Trend.BULLISH, iv_rank_value=80.0) is StrategyTag.BULL_PUT_SPREAD
     assert recommend_strategy(Trend.BEARISH, iv_rank_value=80.0) is StrategyTag.BEAR_CALL_SPREAD
     assert recommend_strategy(Trend.NEUTRAL, iv_rank_value=80.0) is StrategyTag.IRON_CONDOR
+
+
+def test_recommend_strategy_skips_trade_when_volatility_is_spiking():
+    """Even with an attractively high IV rank, a currently-spiking vol
+    environment (found via walk-forward validation to be where the
+    strategy's worst losses cluster) should be refused."""
+    assert recommend_strategy(
+        Trend.BULLISH, iv_rank_value=90.0, vol_spiking=True,
+    ) is StrategyTag.NO_TRADE
+
+
+def test_is_volatility_spiking_detects_sharp_recent_jump():
+    vol = pd.Series([0.15] * 10 + [0.30])  # last value more than doubled over 5 days
+    assert is_volatility_spiking(vol, lookback=5, spike_multiple=1.3) is True
+
+
+def test_is_volatility_spiking_false_for_stable_vol():
+    vol = pd.Series([0.20] * 11)
+    assert is_volatility_spiking(vol, lookback=5, spike_multiple=1.3) is False
+
+
+def test_is_volatility_spiking_false_for_insufficient_history():
+    vol = pd.Series([0.20, 0.25])
+    assert is_volatility_spiking(vol, lookback=5) is False
+
+
+def test_is_volatility_spiking_false_for_nan_values():
+    vol = pd.Series([float("nan")] * 6)
+    assert is_volatility_spiking(vol, lookback=5) is False

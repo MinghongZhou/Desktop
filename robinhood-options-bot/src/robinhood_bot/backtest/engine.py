@@ -41,7 +41,12 @@ from robinhood_bot.options_pricing.simulated_chain import build_simulated_chain,
 from robinhood_bot.risk.engine import RiskEngine
 from robinhood_bot.risk.position_sizing import UndefinedRiskError, estimate_max_loss_per_unit
 from robinhood_bot.strategy.definitions import bear_call_spread, bull_put_spread, iron_condor
-from robinhood_bot.strategy.signals import StrategyTag, recommend_strategy, trend_signal
+from robinhood_bot.strategy.signals import (
+    StrategyTag,
+    is_volatility_spiking,
+    recommend_strategy,
+    trend_signal,
+)
 
 log = get_logger(__name__)
 
@@ -177,8 +182,11 @@ def _run_trading_day(
     trend = trend_signal(history_slice, fast=TREND_FAST, slow=TREND_SLOW)
     current_iv_rank = iv_rank.iloc[i]
     current_vol = vol_series.iloc[i]
+    vol_spiking = is_volatility_spiking(vol_series.iloc[: i + 1])
 
-    strategy_tag = recommend_strategy(trend, current_iv_rank, config.iv_rank_threshold)
+    strategy_tag = recommend_strategy(
+        trend, current_iv_rank, config.iv_rank_threshold, vol_spiking=vol_spiking,
+    )
     ledger.record_signal(
         run_id, mode, config.ticker, trend.value,
         None if pd.isna(current_iv_rank) else float(current_iv_rank),
