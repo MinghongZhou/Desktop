@@ -42,6 +42,26 @@ class RiskEngine:
         self._drawdown_halted = False
         self._kill_switch_active = False
 
+    def export_state(self) -> dict:
+        """Serializes peak equity / daily baseline / halt flags for
+        persistence across process restarts -- see
+        execution/state_persistence.py. Settings themselves aren't part of
+        this (they come from config, not saved state)."""
+        return {
+            "peak_equity": self._peak_equity,
+            "daily_start_equity": self._daily_start_equity,
+            "current_day": self._current_day.isoformat() if self._current_day else None,
+            "drawdown_halted": self._drawdown_halted,
+            "kill_switch_active": self._kill_switch_active,
+        }
+
+    def import_state(self, state: dict) -> None:
+        self._peak_equity = state["peak_equity"]
+        self._daily_start_equity = state["daily_start_equity"]
+        self._current_day = date.fromisoformat(state["current_day"]) if state["current_day"] else None
+        self._drawdown_halted = state["drawdown_halted"]
+        self._kill_switch_active = state["kill_switch_active"]
+
     # -- state transitions, driven by the execution loop --
 
     def mark_new_trading_day(self, today: date, equity: float) -> None:

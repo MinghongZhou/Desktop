@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import argparse
 import uuid
+from pathlib import Path
 
 from robinhood_bot.backtest.engine import BacktestConfig
 from robinhood_bot.broker.shadow import ShadowBrokerClient
-from robinhood_bot.config import load_settings
+from robinhood_bot.config import REPO_ROOT, load_settings
 from robinhood_bot.data.factory import build_price_history_fetcher
 from robinhood_bot.execution.paper_loop import run_paper_trading_daemon
+from robinhood_bot.execution.state_persistence import load_state, save_state
 from robinhood_bot.ledger.store import Ledger
 from robinhood_bot.logging_setup import configure_logging, get_logger
 from robinhood_bot.monitoring.alerts import LoggingAlerter, WebhookAlerter
@@ -47,6 +49,13 @@ def main() -> None:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--max-cycles", type=int, default=None,
                          help="Stop after this many trading days instead of running forever (useful for a bounded trial/demo run)")
+    parser.add_argument("--state-file", default=None,
+                         help="Path to persist broker/risk-engine state across process restarts "
+                              "(e.g. successive Routine firings). Defaults to "
+                              "data/paper_state/{run_id}.json. State is saved after every cycle "
+                              "and loaded on startup if it already exists, so re-invoking this "
+                              "script with the same --run-id/--state-file resumes rather than "
+                              "resetting to a fresh account.")
     args = parser.parse_args()
 
     settings = load_settings()
@@ -77,18 +86,30 @@ def main() -> None:
         else LoggingAlerter()
     )
 
-    broker = ShadowBrokerClient(starting_cash=config.starting_cash)
-    risk_engine = RiskEngine(settings.risk)
-    ledger = Ledger(settings.resolved_ledger_db_path)
+    state_path = Path(args.state_file) if args.state_file else REPO_ROOT / "data" / "paper_state" / f"{run_id}.json"
 
-    log.info("run_paper.starting", ticker=args.ticker, run_id=run_id, starting_cash=config.starting_cash)
-    print(f"Paper trading started. run_id={run_id}")
+    restored = load_state(state_path, settings.risk)
+    if restored is not None:
+        broker, risk_engine = restored
+        log.info("run_paper.resuming", run_id=run_id, state_file=str(state_path),
+                  equity=broker.get_account().equity)
+        print(f"Resuming from saved state ({state_path}). Equity: ${broker.get_account().equity:,.2f}")
+    else:
+        broker = ShadowBrokerClient(starting_cash=config.starting_cash)
+        risk_engine = RiskEngine(settings.risk)
+        log.info("run_paper.starting", ticker=args.ticker, run_id=run_id, starting_cash=config.starting_cash)
+        print(f"Paper trading started. run_id={run_id}")
+
+    ledger = Ledger(settings.resolved_ledger_db_path)
     print(f"View live: streamlit run dashboard/app.py  (filter to run_id={run_id})")
+
+    def persist_state() -> None:
+        save_state(state_path, broker, risk_engine)
 
     try:
         cycles = run_paper_trading_daemon(
             broker, risk_engine, ledger, run_id, config, fetch_price_df,
-            alerter=alerter, max_cycles=args.max_cycles,
+            alerter=alerter, max_cycles=args.max_cycles, on_cycle_complete=persist_state,
         )
         print(f"Completed {cycles} trading day(s). Final equity: ${broker.get_account().equity:,.2f}")
     finally:

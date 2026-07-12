@@ -44,13 +44,16 @@ def run_paper_trading_daemon(
     sleep_fn: Callable[[float], None] = time.sleep,
     clock_fn: Callable[[], date] = lambda: datetime.now(timezone.utc).date(),
     max_cycles: int | None = None,
+    on_cycle_complete: Callable[[], None] | None = None,
 ) -> int:
     """Runs one trading day per cycle, forever (or `max_cycles` times, for
     tests/bounded runs). Each cycle: refetch price history through today,
     run exactly one trading day, alert if that day produced a new
-    halt-worthy risk decision, then sleep until the next cycle. Skips
-    re-running if `clock_fn()` returns the same date twice in a row
-    (protects against waking early / restarting mid-day).
+    halt-worthy risk decision, invoke `on_cycle_complete` (e.g. to persist
+    broker/risk-engine state to disk -- see state_persistence.py), then
+    sleep until the next cycle. Skips re-running if `clock_fn()` returns
+    the same date twice in a row (protects against waking early /
+    restarting mid-day).
 
     Returns the number of cycles actually run.
     """
@@ -64,6 +67,8 @@ def run_paper_trading_daemon(
             last_run_date = today
             cycles_run += 1
             log.info("paper_loop.cycle_complete", run_id=run_id, as_of=str(today), cycle=cycles_run)
+            if on_cycle_complete is not None:
+                on_cycle_complete()
         if max_cycles is not None and cycles_run >= max_cycles:
             break
         sleep_fn(sleep_seconds)

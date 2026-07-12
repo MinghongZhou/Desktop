@@ -150,3 +150,22 @@ def test_run_one_cycle_does_not_realert_on_a_stale_preexisting_row(ledger, risk_
     _run_one_cycle(broker, risk_engine, ledger, "paper_run", no_trade_config, price_df, alerter)
 
     assert alerter.events == []
+
+
+def test_on_cycle_complete_fires_once_per_completed_cycle_not_after_skips(ledger, risk_settings):
+    broker = ShadowBrokerClient(starting_cash=100_000)
+    risk_engine = RiskEngine(risk_settings)
+    config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10)
+    fetch_price_df = make_growing_price_feed(max_extra_days=5)
+
+    calls = []
+    cycles = run_paper_trading_daemon(
+        broker, risk_engine, ledger, "paper_run", config, fetch_price_df,
+        sleep_fn=lambda seconds: None,
+        # Same date repeated once (a skipped cycle) must not trigger a callback.
+        clock_fn=FakeClock(date(2026, 1, 1), days=[0, 0, 1, 2]),
+        max_cycles=3,
+        on_cycle_complete=lambda: calls.append(True),
+    )
+    assert cycles == 3
+    assert len(calls) == 3

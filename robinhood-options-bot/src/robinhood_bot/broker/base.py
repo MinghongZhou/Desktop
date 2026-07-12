@@ -69,6 +69,45 @@ class OptionContract:
         )
 
 
+def contract_to_dict(c: OptionContract) -> dict:
+    """JSON-serializable form, used by execution/state_persistence.py to
+    save open positions across process restarts (dates/enums aren't
+    natively JSON-serializable)."""
+    return {
+        "underlying": c.underlying,
+        "expiration": c.expiration.isoformat(),
+        "strike": c.strike,
+        "right": c.right.value,
+        "bid": c.bid,
+        "ask": c.ask,
+        "last": c.last,
+        "implied_volatility": c.implied_volatility,
+        "delta": c.delta,
+        "gamma": c.gamma,
+        "theta": c.theta,
+        "vega": c.vega,
+        "as_of": c.as_of.isoformat(),
+    }
+
+
+def contract_from_dict(d: dict) -> OptionContract:
+    return OptionContract(
+        underlying=d["underlying"],
+        expiration=date.fromisoformat(d["expiration"]),
+        strike=d["strike"],
+        right=OptionRight(d["right"]),
+        bid=d["bid"],
+        ask=d["ask"],
+        last=d["last"],
+        implied_volatility=d["implied_volatility"],
+        delta=d["delta"],
+        gamma=d["gamma"],
+        theta=d["theta"],
+        vega=d["vega"],
+        as_of=datetime.fromisoformat(d["as_of"]),
+    )
+
+
 @dataclass(frozen=True)
 class OrderLeg:
     contract: OptionContract

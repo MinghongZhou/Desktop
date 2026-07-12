@@ -8,6 +8,8 @@ from robinhood_bot.broker.base import (
     OrderLeg,
     OrderSide,
     OrderStatus,
+    contract_from_dict,
+    contract_to_dict,
 )
 from robinhood_bot.broker.shadow import ShadowBrokerClient
 
@@ -122,3 +124,36 @@ def test_remark_position_is_a_noop_for_unknown_symbol():
     contract = make_contract()
     broker.remark_position(contract.occ_symbol, contract)  # must not raise
     assert broker.get_account().positions == []
+
+
+def test_contract_to_dict_from_dict_round_trips():
+    contract = make_contract()
+    restored = contract_from_dict(contract_to_dict(contract))
+    assert restored == contract
+
+
+def test_export_state_then_from_state_round_trips_cash_and_positions():
+    broker = ShadowBrokerClient(starting_cash=10_000)
+    contract = make_contract()
+    broker.place_order(
+        [OrderLeg(contract, OrderSide.SELL_TO_OPEN, quantity=3)],
+        strategy_tag="bull_put_spread",
+    )
+    cash_after_open = broker.get_account().cash
+
+    restored = ShadowBrokerClient.from_state(broker.export_state())
+
+    account = restored.get_account()
+    assert account.cash == cash_after_open
+    assert len(account.positions) == 1
+    position = account.positions[0]
+    assert position.quantity == -3
+    assert position.strategy_tag == "bull_put_spread"
+    assert position.contract == contract
+
+
+def test_export_state_from_state_round_trips_empty_positions():
+    broker = ShadowBrokerClient(starting_cash=42_000)
+    restored = ShadowBrokerClient.from_state(broker.export_state())
+    assert restored.get_account().cash == 42_000
+    assert restored.get_account().positions == []

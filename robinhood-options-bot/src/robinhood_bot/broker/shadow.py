@@ -23,6 +23,8 @@ from robinhood_bot.broker.base import (
     OrderStatus,
     Position,
     Quote,
+    contract_from_dict,
+    contract_to_dict,
     signed_quantity,
 )
 
@@ -34,6 +36,38 @@ class ShadowBrokerClient(BrokerClient):
         self._chains: dict[str, list[OptionContract]] = {}
         self._positions: dict[str, Position] = {}  # keyed by occ_symbol
         self._order_ids = itertools.count(1)
+
+    def export_state(self) -> dict:
+        """Serializes cash + open positions for persistence across process
+        restarts -- see execution/state_persistence.py. Order-id
+        uniqueness isn't preserved across a restore (ids restart from 1),
+        since nothing relies on them being globally unique; the ledger's
+        own autoincrement id is the real unique key."""
+        return {
+            "cash": self._cash,
+            "positions": [
+                {
+                    "contract": contract_to_dict(p.contract),
+                    "quantity": p.quantity,
+                    "average_open_price": p.average_open_price,
+                    "strategy_tag": p.strategy_tag,
+                }
+                for p in self._positions.values()
+            ],
+        }
+
+    @classmethod
+    def from_state(cls, state: dict) -> "ShadowBrokerClient":
+        broker = cls(starting_cash=state["cash"])
+        for pos in state["positions"]:
+            contract = contract_from_dict(pos["contract"])
+            broker._positions[contract.occ_symbol] = Position(
+                contract=contract,
+                quantity=pos["quantity"],
+                average_open_price=pos["average_open_price"],
+                strategy_tag=pos["strategy_tag"],
+            )
+        return broker
 
     # -- data feed hooks, called by the data layer / backtest engine --
 

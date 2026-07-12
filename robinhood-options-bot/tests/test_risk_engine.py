@@ -169,3 +169,40 @@ def test_undefined_risk_trade_is_rejected_with_clear_reason():
     )
     assert not decision.approved
     assert "unbounded" in decision.reason
+
+
+def test_export_import_state_round_trips_peak_equity_and_daily_baseline():
+    engine = RiskEngine(make_settings())
+    engine.mark_new_trading_day(date(2026, 1, 1), 100_000)
+    engine.update_equity(105_000)  # bumps peak equity
+
+    restored = RiskEngine(make_settings())
+    restored.import_state(engine.export_state())
+
+    assert restored._peak_equity == 105_000
+    assert restored._daily_start_equity == 100_000
+    assert restored._current_day == date(2026, 1, 1)
+    assert restored.is_halted is False
+
+
+def test_export_import_state_round_trips_halt_flags():
+    engine = RiskEngine(make_settings())
+    engine.mark_new_trading_day(date(2026, 1, 1), 100_000)
+    engine.trip_kill_switch("test")
+
+    restored = RiskEngine(make_settings())
+    restored.import_state(engine.export_state())
+
+    assert restored.is_halted is True
+    assert restored._halt_reason() == "Kill switch is active."
+
+
+def test_export_state_before_any_trading_day_round_trips_none_fields():
+    engine = RiskEngine(make_settings())
+
+    restored = RiskEngine(make_settings())
+    restored.import_state(engine.export_state())
+
+    assert restored._peak_equity is None
+    assert restored._daily_start_equity is None
+    assert restored._current_day is None
