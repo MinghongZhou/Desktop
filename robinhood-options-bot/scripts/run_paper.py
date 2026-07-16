@@ -19,6 +19,7 @@ is "alpaca", ALPACA_API_KEY / ALPACA_API_SECRET env vars.
 from __future__ import annotations
 
 import argparse
+import os
 import uuid
 from pathlib import Path
 
@@ -30,10 +31,39 @@ from robinhood_bot.execution.paper_loop import run_paper_trading_daemon
 from robinhood_bot.execution.state_persistence import load_state, save_state
 from robinhood_bot.ledger.store import Ledger
 from robinhood_bot.logging_setup import configure_logging, get_logger
-from robinhood_bot.monitoring.alerts import LoggingAlerter, WebhookAlerter
+from robinhood_bot.monitoring.alerts import LoggingAlerter, TwilioWhatsAppAlerter, WebhookAlerter
 from robinhood_bot.risk.engine import RiskEngine
 
 log = get_logger(__name__)
+
+
+def build_alerter(settings):
+    """WhatsApp requires TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN in the
+    environment (never in config/settings.yaml, same rule Alpaca's
+    credentials follow) plus alerting.whatsapp_to set. Falls back to
+    LoggingAlerter (never silently drops alerts) if a channel is
+    configured but its credentials aren't actually present."""
+    if not settings.alerting.enabled:
+        return LoggingAlerter()
+
+    if settings.alerting.channel == "whatsapp":
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        if account_sid and auth_token and settings.alerting.whatsapp_to:
+            return TwilioWhatsAppAlerter(
+                account_sid=account_sid,
+                auth_token=auth_token,
+                from_number=settings.alerting.whatsapp_from or "whatsapp:+14155238886",
+                to_number=settings.alerting.whatsapp_to,
+            )
+        log.warning("run_paper.whatsapp_alerting_misconfigured",
+                    detail="alerting.channel is 'whatsapp' but TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/"
+                           "alerting.whatsapp_to aren't all set -- falling back to logging only.")
+        return LoggingAlerter()
+
+    if settings.alerting.webhook_url:
+        return WebhookAlerter(settings.alerting.webhook_url)
+    return LoggingAlerter()
 
 
 def main() -> None:
@@ -82,11 +112,7 @@ def main() -> None:
     def fetch_price_df():
         return fetch(args.ticker, lookback_days, force_refresh=True)
 
-    alerter = (
-        WebhookAlerter(settings.alerting.webhook_url)
-        if settings.alerting.enabled and settings.alerting.webhook_url
-        else LoggingAlerter()
-    )
+    alerter = build_alerter(settings)
 
     state_path = Path(args.state_file) if args.state_file else REPO_ROOT / "data" / "paper_state" / f"{run_id}.json"
 

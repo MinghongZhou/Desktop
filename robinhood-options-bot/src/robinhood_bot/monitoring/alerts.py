@@ -2,8 +2,9 @@
 
 `LoggingAlerter` is the always-safe fallback (alerts should never be
 silently dropped even with no webhook configured). `WebhookAlerter` posts
-to any Slack/Discord-compatible incoming webhook. `post_fn` is injectable
-so tests never need real network access.
+to any Slack/Discord-compatible incoming webhook. `TwilioWhatsAppAlerter`
+sends a WhatsApp message via Twilio's API. `post_fn` is injectable on all
+of these so tests never need real network access.
 """
 from __future__ import annotations
 
@@ -81,3 +82,56 @@ def alert_on_risk_decision(alerter: Alerter, approved: bool, reason: str | None)
             detail=reason,
             at=datetime.now(timezone.utc),
         ))
+
+
+def alert_on_order_fill(alerter: Alerter, order_row: dict) -> None:
+    """Notifies on every actually-filled order (opens and closes) --
+    rejected/cancelled orders aren't trades and don't page anyone."""
+    if order_row["status"] != "filled":
+        return
+    fill_price = order_row["fill_price"]
+    fill_str = f"${fill_price:.2f}" if fill_price is not None else "n/a"
+    alerter.send(AlertEvent(
+        severity=Severity.INFO,
+        title="Trade filled",
+        detail=f"{order_row['strategy_tag']} x{order_row['quantity']} @ {fill_str} "
+               f"(run_id={order_row['run_id']})",
+        at=datetime.now(timezone.utc),
+    ))
+
+
+class TwilioWhatsAppAlerter(Alerter):
+    """Sends alerts as a WhatsApp message via Twilio's Programmable
+    Messaging API. Requires a Twilio account with WhatsApp enabled (the
+    free sandbox works for a single personal number -- join it by sending
+    the sandbox's join code to its WhatsApp number from your own phone)
+    and TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN in the environment; those
+    never pass through this class's constructor as literals in code or
+    config, the same credential-handling rule the Alpaca adapter follows.
+    """
+
+    def __init__(
+        self, account_sid: str, auth_token: str, from_number: str, to_number: str,
+        post_fn: Callable[[str, str, dict], None] | None = None,
+    ):
+        self._account_sid = account_sid
+        self._auth_token = auth_token
+        self._from_number = from_number  # e.g. "whatsapp:+14155238886" (Twilio's sandbox number)
+        self._to_number = to_number      # e.g. "whatsapp:+15551234567"
+        self._post_fn = post_fn or self._default_post
+
+    @staticmethod
+    def _default_post(account_sid: str, auth_token: str, data: dict) -> None:
+        import requests
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+        response = requests.post(url, data=data, auth=(account_sid, auth_token), timeout=10)
+        response.raise_for_status()
+
+    def send(self, event: AlertEvent) -> None:
+        text = f"[{event.severity.value.upper()}] {event.title}: {event.detail}"
+        try:
+            self._post_fn(self._account_sid, self._auth_token, {
+                "From": self._from_number, "To": self._to_number, "Body": text,
+            })
+        except Exception:
+            log.error("alert.whatsapp_delivery_failed", title=event.title)

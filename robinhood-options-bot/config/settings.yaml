@@ -51,4 +51,9 @@ logging:
 
 alerting:
   enabled: false
+  channel: webhook    # webhook | whatsapp
   webhook_url: null   # Slack/Discord-compatible incoming webhook URL
+  # whatsapp: also requires TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN in the
+  # environment (never here -- same rule Alpaca's credentials follow).
+  whatsapp_to: null       # e.g. "whatsapp:+15551234567"
+  whatsapp_from: null     # defaults to Twilio's sandbox number (whatsapp:+14155238886) if unset

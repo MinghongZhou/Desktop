@@ -65,7 +65,13 @@ class LoggingSettings(BaseModel):
 
 class AlertingSettings(BaseModel):
     enabled: bool = False
+    channel: Literal["webhook", "whatsapp"] = "webhook"
     webhook_url: str | None = None
+    # Twilio Account SID / Auth Token come from TWILIO_ACCOUNT_SID /
+    # TWILIO_AUTH_TOKEN env vars (see broker/factory.py's ALPACA_* vars for
+    # the same pattern) -- never put credentials in this file.
+    whatsapp_to: str | None = None      # e.g. "whatsapp:+15551234567"
+    whatsapp_from: str | None = None    # defaults to Twilio's sandbox number if unset
 
 
 class Settings(BaseModel):

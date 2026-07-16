@@ -25,7 +25,7 @@ from robinhood_bot.backtest.engine import BacktestConfig, run_live_trading_day
 from robinhood_bot.broker.shadow import ShadowBrokerClient
 from robinhood_bot.ledger.store import Ledger
 from robinhood_bot.logging_setup import get_logger
-from robinhood_bot.monitoring.alerts import Alerter, alert_on_risk_decision
+from robinhood_bot.monitoring.alerts import Alerter, alert_on_order_fill, alert_on_risk_decision
 from robinhood_bot.risk.engine import RiskEngine
 
 log = get_logger(__name__)
@@ -99,14 +99,27 @@ def _run_one_cycle(
     price_df: pd.DataFrame,
     alerter: Alerter | None,
 ) -> None:
-    before = ledger.recent_risk_decisions(run_id=run_id, limit=1)
-    last_id_before = before[0]["id"] if before else None
+    before_risk = ledger.recent_risk_decisions(run_id=run_id, limit=1)
+    last_risk_id_before = before_risk[0]["id"] if before_risk else None
+    before_orders = ledger.recent_orders(run_id=run_id, limit=1)
+    last_order_id_before = before_orders[0]["id"] if before_orders else None
 
     run_live_trading_day(broker, risk_engine, ledger, run_id, config, price_df, mode="paper")
 
     if alerter is None:
         return
-    after = ledger.recent_risk_decisions(run_id=run_id, limit=1)
-    if after and after[0]["id"] != last_id_before:
-        decision = after[0]
+
+    after_risk = ledger.recent_risk_decisions(run_id=run_id, limit=1)
+    if after_risk and after_risk[0]["id"] != last_risk_id_before:
+        decision = after_risk[0]
         alert_on_risk_decision(alerter, bool(decision["approved"]), decision["reason"])
+
+    # recent_orders is newest-first; collect everything since last_order_id_before
+    # and alert oldest-first so a WhatsApp thread reads in the order trades happened.
+    new_orders = []
+    for order in ledger.recent_orders(run_id=run_id, limit=100):
+        if last_order_id_before is not None and order["id"] <= last_order_id_before:
+            break
+        new_orders.append(order)
+    for order in reversed(new_orders):
+        alert_on_order_fill(alerter, order)

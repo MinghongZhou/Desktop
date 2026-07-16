@@ -216,3 +216,34 @@ def test_wait_for_next_day_false_returns_immediately_instead_of_sleeping(ledger,
     )
     assert cycles == 0
     assert sleep_calls == []  # must not have slept at all
+
+
+def test_alerter_fires_on_a_filled_trade(ledger, risk_settings):
+    broker = ShadowBrokerClient(starting_cash=100_000)
+    risk_engine = RiskEngine(risk_settings)
+    config = BacktestConfig(ticker="TEST", iv_rank_threshold=0.0, dte_target=10)
+    fetch_price_df = make_growing_price_feed(max_extra_days=1)
+    alerter = RecordingAlerter()
+
+    run_paper_trading_daemon(
+        broker, risk_engine, ledger, "paper_run", config, fetch_price_df,
+        alerter=alerter,
+        sleep_fn=lambda seconds: None,
+        clock_fn=FakeClock(date(2026, 1, 1), days=[0]),
+        max_cycles=1,
+    )
+    fill_events = [e for e in alerter.events if e.title == "Trade filled"]
+    assert fill_events  # a permissive threshold should produce at least one real fill
+    assert "x" in fill_events[0].detail  # quantity is present in the message
+
+
+def test_alerter_skips_order_alert_when_no_new_order_placed(ledger, risk_settings):
+    broker = ShadowBrokerClient(starting_cash=100_000)
+    risk_engine = RiskEngine(risk_settings)
+    no_trade_config = BacktestConfig(ticker="TEST", iv_rank_threshold=101.0, dte_target=10)
+    price_df = make_price_series(n=MIN_HISTORY_DAYS + 1)
+    alerter = RecordingAlerter()
+
+    _run_one_cycle(broker, risk_engine, ledger, "paper_run", no_trade_config, price_df, alerter)
+
+    assert [e for e in alerter.events if e.title == "Trade filled"] == []
