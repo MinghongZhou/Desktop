@@ -76,6 +76,12 @@ class BacktestConfig:
     enable_early_exit: bool = True
     profit_target_pct: float = 0.50    # close early once unrealized profit reaches this fraction of credit received
     stop_loss_multiple: float = 2.0    # close early once unrealized loss reaches this multiple of credit received
+    # Off by default -- existing callers (including the live paper trial)
+    # get identical behavior unless they explicitly opt in and pass a
+    # sentiment_series into run_backtest/run_live_trading_day. See
+    # sentiment/scorer.py for how that series is built.
+    sentiment_filter_enabled: bool = False
+    sentiment_block_threshold: float = 0.15  # block a directional trade if news sentiment contradicts it by more than this
 
 
 @dataclass
@@ -92,7 +98,12 @@ def run_backtest(
     risk_settings: RiskSettings,
     ledger: Ledger,
     run_id: str | None = None,
+    sentiment_series: pd.Series | None = None,
 ) -> BacktestResult:
+    """`sentiment_series`, if given, must be aligned to `price_df.index`
+    (same length, same positional order -- see
+    sentiment/scorer.py's daily_sentiment_series). Only consulted at all
+    when `config.sentiment_filter_enabled` is True."""
     run_id = run_id or f"backtest_{config.ticker}_{uuid.uuid4().hex[:8]}"
     mode = "backtest"
 
@@ -109,7 +120,8 @@ def run_backtest(
     risk_engine = RiskEngine(risk_settings)
 
     for i in range(MIN_HISTORY_DAYS, len(price_df)):
-        _run_trading_day(broker, risk_engine, ledger, run_id, mode, config, price_df, vol_series, iv_rank, i)
+        _run_trading_day(broker, risk_engine, ledger, run_id, mode, config, price_df, vol_series, iv_rank, i,
+                          sentiment_series=sentiment_series)
 
     final_account = broker.get_account()
     return BacktestResult(
@@ -128,6 +140,7 @@ def run_live_trading_day(
     config: BacktestConfig,
     price_df: pd.DataFrame,
     mode: str = "paper",
+    sentiment_series: pd.Series | None = None,
 ) -> None:
     """Runs exactly one trading day -- the LAST row of `price_df` -- through
     the identical per-day logic `run_backtest` uses for every historical
@@ -159,6 +172,7 @@ def run_live_trading_day(
     _run_trading_day(
         broker, risk_engine, ledger, run_id, mode, config,
         price_df, vol_series, iv_rank, len(price_df) - 1,
+        sentiment_series=sentiment_series,
     )
 
 
@@ -173,6 +187,7 @@ def _run_trading_day(
     vol_series: pd.Series,
     iv_rank: pd.Series,
     i: int,
+    sentiment_series: pd.Series | None = None,
 ) -> None:
     as_of = price_df.index[i].to_pydatetime().replace(tzinfo=timezone.utc)
     as_of_date = as_of.date()
@@ -192,6 +207,18 @@ def _run_trading_day(
     strategy_tag = recommend_strategy(
         trend, current_iv_rank, config.iv_rank_threshold, vol_spiking=vol_spiking,
     )
+
+    if config.sentiment_filter_enabled and sentiment_series is not None:
+        sentiment_today = sentiment_series.iloc[i]
+        if pd.notna(sentiment_today):
+            # Iron condor (neutral) isn't blocked -- it has no directional
+            # stance for news to contradict. A directional bet fighting
+            # strongly-opposed news is the one case this filter exists for.
+            if strategy_tag is StrategyTag.BULL_PUT_SPREAD and sentiment_today < -config.sentiment_block_threshold:
+                strategy_tag = StrategyTag.NO_TRADE
+            elif strategy_tag is StrategyTag.BEAR_CALL_SPREAD and sentiment_today > config.sentiment_block_threshold:
+                strategy_tag = StrategyTag.NO_TRADE
+
     ledger.record_signal(
         run_id, mode, config.ticker, trend.value,
         None if pd.isna(current_iv_rank) else float(current_iv_rank),

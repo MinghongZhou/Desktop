@@ -15,6 +15,7 @@ dependencies = [
     "streamlit>=1.35",
     "plotly>=5.22",
     "requests>=2.31",
+    "vaderSentiment>=3.3.2",
 ]
 
 [project.optional-dependencies]
