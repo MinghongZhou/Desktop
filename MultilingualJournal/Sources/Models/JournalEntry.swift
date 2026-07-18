@@ -13,6 +13,8 @@ final class JournalEntry {
     var source: EntrySource
     var moodTag: String?
     var companionMessages: [CompanionMessage] = []
+    var corrections: [Correction] = []
+    var correctionsFetchedAt: Date?
 
     init(date: Date = .now, segments: [EntrySegment], source: EntrySource, moodTag: String? = nil) {
         self.date = date

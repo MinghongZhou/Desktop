@@ -4,7 +4,7 @@ Voice/text journaling app that preserves code-switching: speak or type in
 whatever language(s) feel natural, and the app detects and tags each
 sentence's language rather than flattening the entry to one.
 
-## Status: Phase 0 + Phase 1 (capture) + Phase 2 (companion chat)
+## Status: Phase 0 + Phase 1 (capture) + Phase 2 (companion chat) + Phase 3 (corrections)
 
 - Record a voice entry (on-device `SFSpeechRecognizer`, live partial
   transcription) or type one.
@@ -14,9 +14,24 @@ sentence's language rather than flattening the entry to one.
 - On-demand companion chat per entry (Claude API): opens with a reflection
   on what you wrote, replies in your entry's language(s), asks at most one
   gentle follow-up. User-supplied API key stored in Keychain via Settings.
+- Optional, dismissible gentle corrections for sentences in your configured
+  "language I'm learning" — up to 2 suggestions per entry, warm tone, never
+  auto-shown.
 
-Not yet built: gentle corrections, voice-back (TTS), search, streaks. See
-the roadmap discussed in chat for the phase order.
+Not yet built: voice-back (TTS), search, streaks. See the roadmap discussed
+in chat for the phase order.
+
+### Gentle corrections — how it works
+
+- Set "Language I'm learning" in Settings first — corrections only look at
+  segments detected as that language, and the button on an entry only
+  appears once at least one segment matches.
+- Fully opt-in: nothing runs until you tap "See gentle corrections," and
+  each suggestion can be swiped away without touching the saved entry text.
+- The model is instructed to flag at most 2 sentences per entry and skip
+  anything already natural — the goal is occasional, useful nudges, not an
+  error-checker. This is a prompt-level constraint, not a guarantee; keep an
+  eye on tone as you use it for real.
 
 ### Companion chat — how it works, and its current limits
 
@@ -66,24 +81,27 @@ there.
 ```
 Sources/
   App/        App entry point, SwiftData container setup
-  Models/     JournalEntry (SwiftData model), EntrySegment, CompanionMessage
+  Models/     JournalEntry (SwiftData model), EntrySegment, CompanionMessage, Correction
   Services/   SpeechRecognitionService (recording + live transcription),
               LanguageSegmenter (sentence-level language tagging),
-              CompanionService (Claude API calls), KeychainService (API key storage)
+              CompanionService (companion chat via Claude API),
+              CorrectionsService (gentle corrections via Claude API),
+              KeychainService (API key storage), AppSettings (target language)
   Views/      EntryListView (timeline), NewEntryView (record/type + save),
-              EntryDetailView, CompanionChatView, SettingsView, LanguageBadge
+              EntryDetailView, CompanionChatView, CorrectionsView, SettingsView,
+              LanguageBadge
 ```
 
-## Setup: enabling the companion
+## Setup: enabling the companion and corrections
 
 1. Get an API key from console.anthropic.com.
-2. In the app, tap the gear icon on the timeline → paste the key → Done.
-3. Open any entry → "Talk about this entry."
+2. In the app, tap the gear icon on the timeline → paste the key.
+3. In the same screen, set "Language I'm learning" if you want corrections.
+4. Tap Done. Open any entry → "Talk about this entry" or "See gentle corrections."
 
 ## Next steps
 
 - Test recording + language tagging against real code-switched speech to see
   how much the locale-lock limitation actually hurts, before deciding on a
   cloud STT fallback.
-- Phase 3: gentle post-entry corrections for target-language segments.
 - Phase 4: voice-back via `AVSpeechSynthesizer`.

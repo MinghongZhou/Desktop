@@ -3,6 +3,12 @@ import SwiftUI
 struct EntryDetailView: View {
     @Bindable var entry: JournalEntry
     @State private var isShowingCompanion = false
+    @State private var isShowingCorrections = false
+
+    private var hasTargetLanguageSegments: Bool {
+        guard let target = AppSettings.targetLanguageCode else { return false }
+        return entry.segments.contains { $0.languageCode == target }
+    }
 
     var body: some View {
         ScrollView {
@@ -29,6 +35,15 @@ struct EntryDetailView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 8)
+
+                if hasTargetLanguageSegments {
+                    Button {
+                        isShowingCorrections = true
+                    } label: {
+                        Label("See gentle corrections", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
             .padding()
         }
@@ -36,6 +51,9 @@ struct EntryDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingCompanion) {
             CompanionChatView(entry: entry)
+        }
+        .sheet(isPresented: $isShowingCorrections) {
+            CorrectionsView(entry: entry)
         }
     }
 }

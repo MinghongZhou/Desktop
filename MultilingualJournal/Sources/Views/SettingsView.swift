@@ -1,9 +1,20 @@
 import SwiftUI
+import Speech
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var apiKey: String = KeychainService.read(account: CompanionService.apiKeyAccount) ?? ""
-    @State private var didSave = false
+    @AppStorage(AppSettings.targetLanguageCodeKey) private var targetLanguageCode: String = ""
+
+    /// Deduped language codes (not full locales) from the same supported-locale
+    /// list used for recording, so "language you're learning" lines up with
+    /// what the app can actually detect segments as.
+    private var availableLanguages: [(code: String, name: String)] {
+        let codes = Set(SFSpeechRecognizer.supportedLocales().compactMap { $0.language.languageCode?.identifier })
+        return codes
+            .map { code in (code: code, name: Locale.current.localizedString(forLanguageCode: code) ?? code) }
+            .sorted { $0.name < $1.name }
+    }
 
     var body: some View {
         NavigationStack {
@@ -25,6 +36,17 @@ struct SettingsView: View {
                             apiKey = ""
                         }
                     }
+                }
+
+                Section {
+                    Picker("Language I'm learning", selection: $targetLanguageCode) {
+                        Text("Not set").tag("")
+                        ForEach(availableLanguages, id: \.code) { language in
+                            Text(language.name).tag(language.code)
+                        }
+                    }
+                } footer: {
+                    Text("Gentle corrections only look at sentences detected in this language.")
                 }
             }
             .navigationTitle("Settings")
