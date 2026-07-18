@@ -1,0 +1,26 @@
+name: MultilingualJournal
+options:
+  bundleIdPrefix: com.minghongzhou
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  MultilingualJournal:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources
+        excludes:
+          - Resources/Info.plist
+    info:
+      path: Sources/Resources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSMicrophoneUsageDescription: "Multilingual Journal uses the microphone to record your voice journal entries."
+        NSSpeechRecognitionUsageDescription: "Multilingual Journal transcribes your voice entries on-device so you can journal by speaking in any language."
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        PRODUCT_BUNDLE_IDENTIFIER: com.minghongzhou.MultilingualJournal
