@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct EntryDetailView: View {
-    let entry: JournalEntry
+    @Bindable var entry: JournalEntry
+    @State private var isShowingCompanion = false
 
     var body: some View {
         ScrollView {
@@ -17,10 +18,24 @@ struct EntryDetailView: View {
                         Text(segment.text)
                     }
                 }
+
+                Button {
+                    isShowingCompanion = true
+                } label: {
+                    Label(
+                        entry.companionMessages.isEmpty ? "Talk about this entry" : "Continue the conversation",
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 8)
             }
             .padding()
         }
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isShowingCompanion) {
+            CompanionChatView(entry: entry)
+        }
     }
 }

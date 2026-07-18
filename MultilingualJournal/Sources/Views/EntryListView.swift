@@ -5,6 +5,7 @@ struct EntryListView: View {
     @Query(sort: \JournalEntry.date, order: .reverse) private var entries: [JournalEntry]
     @Environment(\.modelContext) private var modelContext
     @State private var isPresentingNewEntry = false
+    @State private var isPresentingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -31,6 +32,13 @@ struct EntryListView: View {
                 EntryDetailView(entry: entry)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isPresentingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         isPresentingNewEntry = true
@@ -41,6 +49,9 @@ struct EntryListView: View {
             }
             .sheet(isPresented: $isPresentingNewEntry) {
                 NewEntryView()
+            }
+            .sheet(isPresented: $isPresentingSettings) {
+                SettingsView()
             }
         }
     }
