@@ -30,6 +30,25 @@ jobs:
       - name: Show available simulators
         run: xcrun simctl list devices available
 
+      # Picked at runtime rather than hardcoded: available iPhone simulator
+      # names shift as Xcode/runner images update (e.g. "iPhone 16" isn't
+      # guaranteed to still exist a year from now), so hardcoding one here
+      # is a recurring source of CI breakage unrelated to actual code bugs.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -o pipefail
+          NAME=$(xcrun simctl list devices available \
+            | grep -E '^ +iPhone' \
+            | tail -n1 \
+            | sed -E 's/^ +//; s/ \(.*//')
+          if [ -z "$NAME" ]; then
+            echo "No available iPhone simulator found." >&2
+            exit 1
+          fi
+          echo "Selected simulator: $NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
       # Build-only pass against a generic simulator destination first: it
       # doesn't need a real simulator to be booted, so it's the fastest
       # signal for plain compile errors.
@@ -42,15 +61,11 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
 
-      # Unit tests need a concrete, booted simulator. "iPhone 16" may not
-      # exist on every runner image — if this step fails only because the
-      # device name doesn't match, swap it for one from the "Show available
-      # simulators" step's output above.
       - name: Test
         run: |
           set -o pipefail
           xcodebuild test \
             -project MultilingualJournal.xcodeproj \
             -scheme MultilingualJournal \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.name }}" \
             CODE_SIGNING_ALLOWED=NO
