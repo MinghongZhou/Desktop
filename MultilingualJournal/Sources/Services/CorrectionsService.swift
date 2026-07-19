@@ -76,6 +76,15 @@ enum CorrectionsService {
 
         let decoded = try JSONDecoder().decode(APIResponse.self, from: data)
         let rawText = decoded.content.compactMap { $0.text }.joined()
+        return try parseCorrections(from: rawText, targetSegments: targetSegments)
+    }
+
+    /// Parses the model's raw reply text (expected to be JSON, optionally
+    /// wrapped in a ```-fenced code block) into `Correction`s, mapping each
+    /// item's `segmentIndex` back to the segment it refers to. Split out
+    /// from `fetchCorrections` so this — the part actually worth unit
+    /// testing — doesn't require a network call to exercise.
+    static func parseCorrections(from rawText: String, targetSegments: [EntrySegment]) throws -> [Correction] {
         let jsonText = stripCodeFence(rawText)
 
         guard let jsonData = jsonText.data(using: .utf8),

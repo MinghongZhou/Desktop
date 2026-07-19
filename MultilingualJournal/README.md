@@ -90,7 +90,22 @@ Sources/
   Views/      EntryListView (timeline), NewEntryView (record/type + save),
               EntryDetailView, CompanionChatView, CorrectionsView, SettingsView,
               LanguageBadge
+Tests/
+  MultilingualJournalTests/  Unit tests for the pure logic (LanguageSegmenter,
+                              JournalEntry computed properties, CorrectionsService
+                              JSON parsing) — no network, mic, or simulator UI
+                              interaction needed to run these.
 ```
+
+## CI
+
+`.github/workflows/multilingual-journal-ios-ci.yml` (repo root) runs on push
+to this branch and on PRs touching `MultilingualJournal/`: `xcodegen
+generate`, then `xcodebuild build` and `xcodebuild test` on a macOS GitHub
+Actions runner (this project needs Xcode to build at all — there's no
+Linux/CI-agnostic path). It only checks compilation and the unit tests
+above; it can't exercise mic input, real speech, or actual UI/UX, so
+on-device testing is still necessary before trusting a change.
 
 ## Setup: enabling the companion and corrections
 

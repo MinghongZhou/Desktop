@@ -1,0 +1,56 @@
+name: Multilingual Journal iOS CI
+
+on:
+  push:
+    branches:
+      - claude/multilingual-journaling-companion-niwih3
+    paths:
+      - "MultilingualJournal/**"
+      - ".github/workflows/multilingual-journal-ios-ci.yml"
+  pull_request:
+    paths:
+      - "MultilingualJournal/**"
+      - ".github/workflows/multilingual-journal-ios-ci.yml"
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: MultilingualJournal
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Show available simulators
+        run: xcrun simctl list devices available
+
+      # Build-only pass against a generic simulator destination first: it
+      # doesn't need a real simulator to be booted, so it's the fastest
+      # signal for plain compile errors.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project MultilingualJournal.xcodeproj \
+            -scheme MultilingualJournal \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Unit tests need a concrete, booted simulator. "iPhone 16" may not
+      # exist on every runner image — if this step fails only because the
+      # device name doesn't match, swap it for one from the "Show available
+      # simulators" step's output above.
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project MultilingualJournal.xcodeproj \
+            -scheme MultilingualJournal \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGNING_ALLOWED=NO

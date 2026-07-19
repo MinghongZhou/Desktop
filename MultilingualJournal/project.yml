@@ -24,3 +24,27 @@ targets:
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: com.minghongzhou.MultilingualJournal
+
+  MultilingualJournalTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/MultilingualJournalTests
+    dependencies:
+      - target: MultilingualJournal
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.minghongzhou.MultilingualJournalTests
+
+schemes:
+  MultilingualJournal:
+    build:
+      targets:
+        MultilingualJournal: all
+        MultilingualJournalTests: [test]
+    test:
+      config: Debug
+      targets:
+        - MultilingualJournalTests
