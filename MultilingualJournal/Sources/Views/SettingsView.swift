@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var apiKey: String = KeychainService.read(account: CompanionService.apiKeyAccount) ?? ""
     @AppStorage(AppSettings.targetLanguageCodeKey) private var targetLanguageCode: String = ""
+    @AppStorage(AppSettings.autoSpeakRepliesKey) private var autoSpeakReplies: Bool = true
 
     /// Deduped language codes (not full locales) from the same supported-locale
     /// list used for recording, so "language you're learning" lines up with
@@ -47,6 +48,12 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("Gentle corrections only look at sentences detected in this language.")
+                }
+
+                Section {
+                    Toggle("Speak companion replies aloud", isOn: $autoSpeakReplies)
+                } footer: {
+                    Text("Uses the device's built-in voices, matched to each reply's language. You can still tap any reply to hear it again, or to stop, even with this off.")
                 }
             }
             .navigationTitle("Settings")

@@ -4,7 +4,7 @@ Voice/text journaling app that preserves code-switching: speak or type in
 whatever language(s) feel natural, and the app detects and tags each
 sentence's language rather than flattening the entry to one.
 
-## Status: Phase 0 + Phase 1 (capture) + Phase 2 (companion chat) + Phase 3 (corrections)
+## Status: Phase 0 + Phase 1 (capture) + Phase 2 (companion chat) + Phase 3 (corrections) + Phase 4 (voice-back)
 
 - Record a voice entry (on-device `SFSpeechRecognizer`, live partial
   transcription) or type one.
@@ -17,9 +17,11 @@ sentence's language rather than flattening the entry to one.
 - Optional, dismissible gentle corrections for sentences in your configured
   "language I'm learning" — up to 2 suggestions per entry, warm tone, never
   auto-shown.
+- Companion replies are spoken aloud (`AVSpeechSynthesizer`), voice matched
+  to each reply's detected language. On by default, toggleable in Settings;
+  any reply can be replayed (or stopped) by tapping its speaker icon.
 
-Not yet built: voice-back (TTS), search, streaks. See the roadmap discussed
-in chat for the phase order.
+Not yet built: search, streaks, widget/Siri Shortcut entry point.
 
 ### Gentle corrections — how it works
 
@@ -50,6 +52,23 @@ in chat for the phase order.
   is told to respond with care and point to a crisis line if self-harm
   language appears, but there's no dedicated detection/escalation path.
   Treat this as a baseline, not a safety feature to rely on.
+
+### Voice-back — how it works, and its current limits
+
+- Each companion reply's language is detected independently (same
+  `NLLanguageRecognizer` approach as entry segmentation) and used to pick a
+  matching system voice via `AVSpeechSynthesisVoice(language:)`. If no voice
+  matches, it falls back to the device's default voice — quality will vary
+  a lot by language depending on which voices are installed.
+  Settings → "Speak companion replies aloud" installs no new voices itself;
+  better voices for a given language may need downloading in iOS Settings →
+  Accessibility → Spoken Content → Voices.
+- Playback respects the mute switch / silent mode like any other app audio
+  — there's no override to force sound in silent mode, which is standard
+  behavior but worth knowing if voice-back seems to silently do nothing.
+- No caching: replaying a message re-synthesizes it each time rather than
+  storing audio. Fine at this reply length/frequency; would need revisiting
+  if replies got long or replay became a heavily used interaction.
 
 ## Known limitation to be aware of
 
@@ -86,7 +105,9 @@ Sources/
               LanguageSegmenter (sentence-level language tagging),
               CompanionService (companion chat via Claude API),
               CorrectionsService (gentle corrections via Claude API),
-              KeychainService (API key storage), AppSettings (target language)
+              SpeechSynthesisService (voice-back via AVSpeechSynthesizer),
+              KeychainService (API key storage),
+              AppSettings (target language, auto-speak toggle)
   Views/      EntryListView (timeline), NewEntryView (record/type + save),
               EntryDetailView, CompanionChatView, CorrectionsView, SettingsView,
               LanguageBadge
@@ -119,4 +140,4 @@ on-device testing is still necessary before trusting a change.
 - Test recording + language tagging against real code-switched speech to see
   how much the locale-lock limitation actually hurts, before deciding on a
   cloud STT fallback.
-- Phase 4: voice-back via `AVSpeechSynthesizer`.
+- Search across entries, streaks/reminders, widget/Siri Shortcut entry point.
