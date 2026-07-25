@@ -11,6 +11,8 @@ struct CompanionChatView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingSettings = false
+    @StateObject private var speech = SpeechSynthesisService()
+    @AppStorage(AppSettings.autoSpeakRepliesKey) private var autoSpeakReplies: Bool = true
 
     var body: some View {
         NavigationStack {
@@ -50,13 +52,28 @@ struct CompanionChatView: View {
                         .padding(.horizontal)
                 }
 
+                if speech.isSpeaking {
+                    HStack {
+                        Image(systemName: "speaker.wave.2.fill")
+                        Text("Speaking…")
+                        Spacer()
+                        Button("Stop") { speech.stop() }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+                }
+
                 inputBar
             }
             .navigationTitle("Companion")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("Close") {
+                        speech.stop()
+                        dismiss()
+                    }
                 }
             }
             .sheet(isPresented: $showingSettings) {
@@ -66,6 +83,9 @@ struct CompanionChatView: View {
                 if entry.companionMessages.isEmpty {
                     await requestReply(newUserMessage: nil)
                 }
+            }
+            .onDisappear {
+                speech.stop()
             }
         }
     }
@@ -82,7 +102,7 @@ struct CompanionChatView: View {
     }
 
     private func bubble(for message: CompanionMessage) -> some View {
-        HStack {
+        HStack(alignment: .bottom) {
             if message.role == .companion { EmptyView() } else { Spacer(minLength: 40) }
             Text(message.text)
                 .padding(10)
@@ -90,6 +110,17 @@ struct CompanionChatView: View {
                     message.role == .user ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15),
                     in: RoundedRectangle(cornerRadius: 12)
                 )
+            if message.role == .companion {
+                Button {
+                    speech.speak(message.text)
+                } label: {
+                    Image(systemName: "speaker.wave.2")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            } else {
+                EmptyView()
+            }
             if message.role == .companion { Spacer(minLength: 40) } else { EmptyView() }
         }
     }
@@ -130,6 +161,9 @@ struct CompanionChatView: View {
         do {
             let reply = try await CompanionService.reply(to: entry, history: history, newUserMessage: newUserMessage)
             entry.companionMessages.append(CompanionMessage(role: .companion, text: reply))
+            if autoSpeakReplies {
+                speech.speak(reply)
+            }
         } catch let error as CompanionService.CompanionError {
             errorMessage = error.errorDescription
             if case .missingAPIKey = error {
