@@ -137,11 +137,19 @@ struct NewEntryView: View {
     }
 
     private func save() {
+        // Capture the text before stopping so a late recognition callback
+        // can't affect what we persist.
+        let text = currentTranscript
         speech.stopRecording()
-        let segments = LanguageSegmenter.segment(currentTranscript)
+
+        let segments = LanguageSegmenter.segment(text)
         guard !segments.isEmpty else { return }
+
         let entry = JournalEntry(segments: segments, source: mode == .voice ? .voice : .text)
         modelContext.insert(entry)
+        // Flush immediately rather than relying on autosave timing, so the
+        // entry survives even if the app is backgrounded/killed right after.
+        try? modelContext.save()
         dismiss()
     }
 }
