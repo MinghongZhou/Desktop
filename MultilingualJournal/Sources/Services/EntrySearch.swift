@@ -17,6 +17,7 @@ enum EntrySearch {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
 
+        if let title = entry.title, contains(title, trimmed) { return true }
         if contains(entry.fullText, trimmed) { return true }
 
         // Also match on language names ("spanish", "japanese") so a user can

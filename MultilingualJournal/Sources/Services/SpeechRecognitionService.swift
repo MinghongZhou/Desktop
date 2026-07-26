@@ -107,6 +107,9 @@ final class SpeechRecognitionService: ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        // Let the recognizer insert commas/periods itself, so multi-sentence
+        // entries read naturally instead of as one unpunctuated run.
+        request.addsPunctuation = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
@@ -173,6 +176,14 @@ final class SpeechRecognitionService: ObservableObject {
         if finalizedText.isEmpty { return partial }
         if partial.isEmpty { return finalizedText }
         return finalizedText + " " + partial
+    }
+
+    /// Clears the live transcript. Called by the view after it has folded a
+    /// recording session's text into its own content, so the next session
+    /// starts clean and can't be double-counted.
+    func clearTranscript() {
+        transcript = ""
+        finalizedText = ""
     }
 
     func stopRecording() {

@@ -13,8 +13,15 @@ struct EntryDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(entry.date, style: .date)
-                    .font(.title3.weight(.semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    if let title = entry.title, !title.isEmpty {
+                        Text(title)
+                            .font(.title2.weight(.bold))
+                    }
+                    Text(entry.date, style: .date)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
 
                 ForEach(entry.segments.sorted(by: { $0.order < $1.order })) { segment in
                     VStack(alignment: .leading, spacing: 4) {

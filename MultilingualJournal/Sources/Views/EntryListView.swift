@@ -44,7 +44,11 @@ struct EntryListView: View {
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search your entries")
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search your entries"
+            )
             .navigationTitle("Journal")
             .navigationDestination(for: JournalEntry.self) { entry in
                 EntryDetailView(entry: entry)
@@ -126,8 +130,12 @@ private struct EntryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(entry.date, style: .date)
+            Text(entry.displayTitle)
                 .font(.headline)
+                .lineLimit(1)
+            Text(entry.date, style: .date)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Text(entry.fullText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
