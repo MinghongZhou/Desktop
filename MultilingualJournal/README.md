@@ -105,15 +105,23 @@ deliberately left out of Phase 5 rather than rushed in.
 
 ## Known limitation to be aware of
 
-`SFSpeechRecognizer` is locale-locked per recording session — it cannot
-detect a language switch *while you're talking*. You pick a recognition
-language before recording, and true code-switching detection only happens
-afterward, at the sentence level, once the transcript exists. If someone
-mixes languages within a single sentence, or switches to a language the
-recognizer wasn't primed for, transcription quality will drop. A cloud STT
-fallback (e.g. Whisper) is the likely fix if this turns out to matter in
-practice — worth testing with real mixed-language speech before investing
-there.
+`SFSpeechRecognizer` is locale-locked per recording session — it **cannot
+detect the spoken language or switch languages while you're talking**. You
+choose the recording language *before* you start (via the "Speaking in"
+selector on the record screen); if you speak a different language than the
+one selected, it will mis-transcribe (e.g. Chinese speech coming out as
+nonsense English). To make this less painful the app **remembers your last
+chosen language** (`RecordingLocale` + persisted setting) so you're not
+resetting it to English every time, and the selector is shown prominently
+with a reminder to set it first.
+
+Sentence-level language *tagging* still happens afterward, so an entry that
+mixes languages across sentences is preserved and badged correctly — but
+each recording chunk is only as good as the one language it was primed for.
+True auto-detection / mid-sentence code-switching would require a cloud STT
+model (e.g. Whisper), which auto-detects language and handles mixing far
+better — at the cost of the on-device/offline/no-key properties. That's the
+known trade-off if this limitation proves too constraining in real use.
 
 ## Setup (macOS + Xcode required — this project was scaffolded outside Xcode)
 

@@ -6,7 +6,11 @@ struct NewEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var speech = SpeechRecognitionService()
 
-    @State private var recordingLocale: Locale = .current
+    /// Persisted so the recognizer defaults to the language you last spoke,
+    /// instead of resetting to the device language (usually English) every
+    /// time. Empty until the user has picked once; resolved against the
+    /// recognizer's supported locales at use time.
+    @AppStorage(AppSettings.lastRecordingLocaleKey) private var savedLocaleID: String = ""
     /// Single source of truth for the entry's content, shared across voice
     /// and text modes. Voice dictation appends to it; the text editor edits
     /// it directly — so switching modes never loses what's already there.
@@ -30,6 +34,22 @@ struct NewEntryView: View {
                 (Locale.current.localizedString(forIdentifier: $0.identifier) ?? $0.identifier) <
                 (Locale.current.localizedString(forIdentifier: $1.identifier) ?? $1.identifier)
             }
+    }
+
+    /// The identifier the recognizer will actually use, resolving the saved
+    /// choice against what's supported (falling back to device language).
+    private var resolvedLocaleID: String {
+        RecordingLocale.resolve(
+            savedIdentifier: savedLocaleID.isEmpty ? nil : savedLocaleID,
+            supported: availableLocales.map(\.identifier),
+            deviceLanguageCode: Locale.current.language.languageCode?.identifier
+        ) ?? Locale.current.identifier
+    }
+
+    /// Picker binding: reads the resolved identifier, writes the user's pick
+    /// straight to persistent storage so it sticks for next time.
+    private var localeSelection: Binding<String> {
+        Binding(get: { resolvedLocaleID }, set: { savedLocaleID = $0 })
     }
 
     /// What the entry would contain right now, including any in-progress
@@ -91,13 +111,31 @@ struct NewEntryView: View {
 
     private var voiceEntry: some View {
         VStack(spacing: 16) {
-            Picker("Language", selection: $recordingLocale) {
-                ForEach(availableLocales, id: \.identifier) { locale in
-                    Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
-                        .tag(locale)
+            // Prominent, persistent language selector. Apple's recognizer
+            // can't detect the language or switch mid-recording, so this must
+            // be set before recording — hence the emphasis and helper text.
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .foregroundStyle(.secondary)
+                Text("Speaking in")
+                    .foregroundStyle(.secondary)
+                Picker("Language", selection: localeSelection) {
+                    ForEach(availableLocales, id: \.identifier) { locale in
+                        Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
+                            .tag(locale.identifier)
+                    }
                 }
+                .labelsHidden()
+                .disabled(speech.isRecording)
+                Spacer()
             }
-            .disabled(speech.isRecording)
+            .padding(.horizontal)
+
+            Text("Pick your language before recording — it can't switch languages once you start.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
 
             ScrollView {
                 Text(currentContent.isEmpty ? "Your words will appear here as you speak…" : currentContent)
@@ -146,7 +184,7 @@ struct NewEntryView: View {
                 return
             }
             do {
-                try speech.startRecording(locale: recordingLocale)
+                try speech.startRecording(locale: Locale(identifier: resolvedLocaleID))
             } catch {
                 speech.authorizationError = error.localizedDescription
                 showingPermissionAlert = true
