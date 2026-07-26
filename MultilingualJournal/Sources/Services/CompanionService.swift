@@ -1,19 +1,13 @@
 import Foundation
+import FoundationModels
 
-/// Talks to the Claude API to produce the journaling companion's replies.
-/// The journal entry's own text is always sent as the first "user" turn,
-/// so the companion's opening line is a direct reaction to what was
-/// written — the user doesn't have to type anything to start.
+/// Produces the journaling companion's replies using Apple's on-device
+/// Foundation Models framework — no API key, no network, nothing leaves the
+/// device (a good fit for a private journal). Requires iOS 26+ on an
+/// Apple-Intelligence-capable device; callers get a clear `.unavailable`
+/// error otherwise, and the rest of the app keeps working.
 enum CompanionService {
-    static let apiKeyAccount = "anthropicAPIKey"
-
-    /// Update this if you want the companion to use a different Claude model.
-    private static let model = "claude-sonnet-5"
-    private static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
-    private static let apiVersion = "2023-06-01"
-    private static let maxTokens = 300
-
-    private static let systemPrompt = """
+    static let systemPrompt = """
     You are a warm, curious journaling companion inside a personal journal app. \
     The user just wrote a journal entry, and it may mix multiple languages within \
     it — that's normal for how they naturally speak and think, not something to \
@@ -34,21 +28,21 @@ enum CompanionService {
     """
 
     enum CompanionError: LocalizedError {
-        case missingAPIKey
+        /// The on-device model can't run here (old OS, ineligible device, or
+        /// Apple Intelligence not enabled). `message` is user-facing.
+        case unavailable(String)
         case requestFailed(String)
 
         var errorDescription: String? {
             switch self {
-            case .missingAPIKey:
-                return "Add your Claude API key in Settings to talk with your companion."
-            case .requestFailed(let message):
-                return message
+            case .unavailable(let message): return message
+            case .requestFailed(let message): return message
             }
         }
     }
 
     /// - Parameters:
-    ///   - entry: the journal entry being discussed; always sent as the first turn.
+    ///   - entry: the journal entry being discussed; always the first context.
     ///   - history: prior companion/user turns for this entry, in order.
     ///   - newUserMessage: an additional message the user just typed, if any.
     ///     Pass `nil` to request the companion's opening reflection.
@@ -57,70 +51,78 @@ enum CompanionService {
         history: [CompanionMessage],
         newUserMessage: String?
     ) async throws -> String {
-        guard let apiKey = KeychainService.read(account: apiKeyAccount), !apiKey.isEmpty else {
-            throw CompanionError.missingAPIKey
+        guard #available(iOS 26.0, *) else {
+            throw CompanionError.unavailable(Self.unavailableMessage)
+        }
+        return try await OnDeviceCompanion.reply(
+            entryText: entry.fullText,
+            history: history,
+            newUserMessage: newUserMessage
+        )
+    }
+
+    static let unavailableMessage =
+        "The companion runs on Apple Intelligence, which needs iOS 26 or later on a supported device (iPhone 15 Pro or newer). Your journal entries still work everywhere."
+
+    /// Builds the single prompt describing the entry and conversation so far.
+    /// Shared with the on-device path (kept here, free of framework types, so
+    /// it's easy to reason about and adjust).
+    static func buildPrompt(entryText: String, history: [CompanionMessage], newUserMessage: String?) -> String {
+        var lines = ["The person's journal entry:", "\"\"\"", entryText, "\"\"\""]
+
+        if !history.isEmpty {
+            lines.append("")
+            lines.append("Conversation so far:")
+            for message in history {
+                let speaker = message.role == .companion ? "You" : "Them"
+                lines.append("\(speaker): \(message.text)")
+            }
         }
 
-        var messages: [APIMessage] = [APIMessage(role: "user", content: entry.fullText)]
-        messages.append(contentsOf: history.map { APIMessage(role: $0.role.apiRole, content: $0.text) })
-        if let newUserMessage {
-            messages.append(APIMessage(role: "user", content: newUserMessage))
+        lines.append("")
+        if let newUserMessage, !newUserMessage.isEmpty {
+            lines.append("Them: \(newUserMessage)")
+            lines.append("Respond as the companion.")
+        } else if history.isEmpty {
+            lines.append("Respond as the companion with a brief opening reflection on what they wrote.")
+        } else {
+            lines.append("Respond as the companion.")
         }
 
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            APIRequest(model: model, max_tokens: maxTokens, system: systemPrompt, messages: messages)
+        return lines.joined(separator: "\n")
+    }
+}
+
+@available(iOS 26.0, *)
+private enum OnDeviceCompanion {
+    static func reply(entryText: String, history: [CompanionMessage], newUserMessage: String?) async throws -> String {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            break
+        case .unavailable:
+            throw CompanionService.CompanionError.unavailable(CompanionService.unavailableMessage)
+        @unknown default:
+            throw CompanionService.CompanionError.unavailable(CompanionService.unavailableMessage)
+        }
+
+        let session = LanguageModelSession(instructions: CompanionService.systemPrompt)
+        let prompt = CompanionService.buildPrompt(
+            entryText: entryText,
+            history: history,
+            newUserMessage: newUserMessage
         )
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw CompanionError.requestFailed("No response from server.")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONDecoder().decode(APIErrorResponse.self, from: data).error.message)
-                ?? "Request failed with status \(http.statusCode)."
-            throw CompanionError.requestFailed(message)
-        }
-
-        let decoded = try JSONDecoder().decode(APIResponse.self, from: data)
-        let text = decoded.content.compactMap { $0.text }.joined()
-        guard !text.isEmpty else {
-            throw CompanionError.requestFailed("The companion didn't have anything to say.")
-        }
-        return text
-    }
-
-    // MARK: - Wire types
-
-    private struct APIMessage: Encodable {
-        let role: String
-        let content: String
-    }
-
-    private struct APIRequest: Encodable {
-        let model: String
-        let max_tokens: Int
-        let system: String
-        let messages: [APIMessage]
-    }
-
-    private struct APIResponse: Decodable {
-        let content: [ContentBlock]
-        struct ContentBlock: Decodable {
-            let type: String
-            let text: String?
-        }
-    }
-
-    private struct APIErrorResponse: Decodable {
-        let error: APIError
-        struct APIError: Decodable {
-            let message: String
+        do {
+            let response = try await session.respond(to: prompt)
+            let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                throw CompanionService.CompanionError.requestFailed("The companion didn't have anything to say.")
+            }
+            return text
+        } catch let error as CompanionService.CompanionError {
+            throw error
+        } catch {
+            throw CompanionService.CompanionError.requestFailed(error.localizedDescription)
         }
     }
 }

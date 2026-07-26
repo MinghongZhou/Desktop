@@ -10,7 +10,6 @@ struct CompanionChatView: View {
     @State private var draft: String = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var showingSettings = false
     @StateObject private var speech = SpeechSynthesisService()
     @AppStorage(AppSettings.autoSpeakRepliesKey) private var autoSpeakReplies: Bool = true
 
@@ -75,9 +74,6 @@ struct CompanionChatView: View {
                         dismiss()
                     }
                 }
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
             }
             .task {
                 if entry.companionMessages.isEmpty {
@@ -166,9 +162,6 @@ struct CompanionChatView: View {
             }
         } catch let error as CompanionService.CompanionError {
             errorMessage = error.errorDescription
-            if case .missingAPIKey = error {
-                showingSettings = true
-            }
         } catch {
             errorMessage = error.localizedDescription
         }
