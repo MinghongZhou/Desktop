@@ -4,7 +4,7 @@ Voice/text journaling app that preserves code-switching: speak or type in
 whatever language(s) feel natural, and the app detects and tags each
 sentence's language rather than flattening the entry to one.
 
-## Status: Phase 0 + Phase 1 (capture) + Phase 2 (companion chat) + Phase 3 (corrections) + Phase 4 (voice-back)
+## Status: Phases 0–5 (Phase 5 partial — see "not yet built" below)
 
 - Record a voice entry (on-device `SFSpeechRecognizer`, live partial
   transcription) or type one.
@@ -20,8 +20,17 @@ sentence's language rather than flattening the entry to one.
 - Companion replies are spoken aloud (`AVSpeechSynthesizer`), voice matched
   to each reply's detected language. On by default, toggleable in Settings;
   any reply can be replayed (or stopped) by tapping its speaker icon.
+- Search across the timeline, case- and diacritic-insensitive, matching entry
+  text or language name ("spanish" pulls up your Spanish entries).
+- Journaling streaks (current + longest) and a Progress sheet, plus an
+  optional daily reminder notification.
+- Vocabulary growth for the language you're learning: distinct words used,
+  how many are new in the last 30 days, and a sample of recent first-uses.
 
-Not yet built: search, streaks, widget/Siri Shortcut entry point.
+**Not yet built:** widget / Siri Shortcut entry point. That one needs a
+separate app-extension target (App Intents + a new bundle in `project.yml`),
+which is a structural change rather than another feature file, so it was
+deliberately left out of Phase 5 rather than rushed in.
 
 ### Gentle corrections — how it works
 
@@ -34,6 +43,23 @@ Not yet built: search, streaks, widget/Siri Shortcut entry point.
   anything already natural — the goal is occasional, useful nudges, not an
   error-checker. This is a prompt-level constraint, not a guarantee; keep an
   eye on tone as you use it for real.
+
+### Streaks, reminders, and vocabulary — how they work
+
+- A streak counts *distinct calendar days* with at least one entry, so five
+  entries in one evening is still one day. The current streak survives if the
+  last entry was today **or yesterday** — that grace day exists so someone who
+  journals at night doesn't see a zero every morning.
+- The daily reminder is a local notification only; nothing is sent anywhere.
+  Turning the toggle on requests notification permission, and the toggle
+  flips back off if permission is denied rather than silently pretending to
+  be on.
+- Vocabulary counts words you have **used**, not words you know. It doesn't
+  check correctness (that's what gentle corrections are for), and a typo or a
+  misheard word counts the same as a real one. It only looks at segments
+  already tagged as your target language, so its accuracy inherits whatever
+  the language detection got right. Treat the numbers as encouragement, not
+  as a proficiency measure.
 
 ### Companion chat — how it works, and its current limits
 
@@ -106,16 +132,20 @@ Sources/
               CompanionService (companion chat via Claude API),
               CorrectionsService (gentle corrections via Claude API),
               SpeechSynthesisService (voice-back via AVSpeechSynthesizer),
+              EntrySearch (timeline filtering), StreakCalculator,
+              VocabularyAnalyzer (word-use stats), ReminderService (local notifications),
               KeychainService (API key storage),
-              AppSettings (target language, auto-speak toggle)
-  Views/      EntryListView (timeline), NewEntryView (record/type + save),
-              EntryDetailView, CompanionChatView, CorrectionsView, SettingsView,
-              LanguageBadge
+              AppSettings (target language, auto-speak, reminder prefs)
+  Views/      EntryListView (timeline + search + streak banner),
+              NewEntryView (record/type + save), EntryDetailView,
+              CompanionChatView, CorrectionsView, JournalProgressView,
+              SettingsView, LanguageBadge
 Tests/
   MultilingualJournalTests/  Unit tests for the pure logic (LanguageSegmenter,
                               JournalEntry computed properties, CorrectionsService
-                              JSON parsing) — no network, mic, or simulator UI
-                              interaction needed to run these.
+                              JSON parsing, EntrySearch, StreakCalculator,
+                              VocabularyAnalyzer) — no network, mic, or simulator
+                              UI interaction needed to run these.
 ```
 
 ## CI

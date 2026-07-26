@@ -5,6 +5,12 @@ import Foundation
 enum AppSettings {
     static let targetLanguageCodeKey = "targetLanguageCode"
     static let autoSpeakRepliesKey = "autoSpeakCompanionReplies"
+    static let dailyReminderEnabledKey = "dailyReminderEnabled"
+    /// Reminder time stored as minutes past midnight, so it survives as a
+    /// plain Int in UserDefaults rather than needing Date encoding.
+    static let dailyReminderMinutesKey = "dailyReminderMinutes"
+
+    static let defaultReminderMinutes = 20 * 60  // 8:00 PM
 
     /// The language the user is learning, used to decide which entry
     /// segments the Corrections feature should look at. Nil/empty means
