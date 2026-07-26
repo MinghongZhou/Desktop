@@ -2,11 +2,18 @@ import XCTest
 @testable import MultilingualJournal
 
 final class EntrySearchTests: XCTestCase {
-    private func entry(_ text: String, language: String?) -> JournalEntry {
+    private func entry(_ text: String, language: String?, title: String? = nil) -> JournalEntry {
         JournalEntry(
             segments: [EntrySegment(text: text, languageCode: language, order: 0)],
-            source: .text
+            source: .text,
+            title: title
         )
+    }
+
+    func testMatchesOnTitle() {
+        let target = entry("some body text", language: "en", title: "Trip to Madrid")
+        XCTAssertTrue(EntrySearch.matches(target, query: "madrid"))
+        XCTAssertFalse(EntrySearch.matches(target, query: "london"))
     }
 
     func testEmptyQueryReturnsEverything() {

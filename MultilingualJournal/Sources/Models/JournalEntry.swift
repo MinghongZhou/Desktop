@@ -11,16 +11,28 @@ final class JournalEntry {
     var date: Date
     var segments: [EntrySegment]
     var source: EntrySource
+    var title: String?
     var moodTag: String?
     var companionMessages: [CompanionMessage] = []
     var corrections: [Correction] = []
     var correctionsFetchedAt: Date?
 
-    init(date: Date = .now, segments: [EntrySegment], source: EntrySource, moodTag: String? = nil) {
+    init(date: Date = .now, segments: [EntrySegment], source: EntrySource, title: String? = nil, moodTag: String? = nil) {
         self.date = date
         self.segments = segments
         self.source = source
+        self.title = title
         self.moodTag = moodTag
+    }
+
+    /// A short label for lists: the user's title if given, otherwise the
+    /// start of the entry text as a fallback so rows are never blank.
+    var displayTitle: String {
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return title
+        }
+        let preview = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return preview.isEmpty ? "Untitled entry" : preview
     }
 
     var fullText: String {

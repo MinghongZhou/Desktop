@@ -7,8 +7,13 @@ struct NewEntryView: View {
     @StateObject private var speech = SpeechRecognitionService()
 
     @State private var recordingLocale: Locale = .current
-    @State private var manualText: String = ""
+    /// Single source of truth for the entry's content, shared across voice
+    /// and text modes. Voice dictation appends to it; the text editor edits
+    /// it directly — so switching modes never loses what's already there.
+    @State private var text: String = ""
+    @State private var title: String = ""
     @State private var mode: Mode = .voice
+    @State private var usedVoice = false
     @State private var showingPermissionAlert = false
 
     private enum Mode: String, CaseIterable {
@@ -27,9 +32,20 @@ struct NewEntryView: View {
             }
     }
 
+    /// What the entry would contain right now, including any in-progress
+    /// dictation that hasn't been folded into `text` yet.
+    private var currentContent: String {
+        speech.isRecording ? appended(text, speech.transcript) : text
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
+                TextField("Title (optional)", text: $title)
+                    .font(.headline)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal)
+
                 Picker("Mode", selection: $mode) {
                     ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
@@ -56,7 +72,13 @@ struct NewEntryView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onChange(of: mode) { _, newMode in
+                // Leaving voice mode mid-recording: stop and keep the text.
+                if newMode == .text, speech.isRecording {
+                    foldRecording()
                 }
             }
             .alert("Permission needed", isPresented: $showingPermissionAlert, presenting: speech.authorizationError) { _ in
@@ -65,10 +87,6 @@ struct NewEntryView: View {
                 Text(message)
             }
         }
-    }
-
-    private var currentTranscript: String {
-        mode == .voice ? speech.transcript : manualText
     }
 
     private var voiceEntry: some View {
@@ -82,8 +100,8 @@ struct NewEntryView: View {
             .disabled(speech.isRecording)
 
             ScrollView {
-                Text(speech.transcript.isEmpty ? "Your words will appear here as you speak…" : speech.transcript)
-                    .foregroundStyle(speech.transcript.isEmpty ? .secondary : .primary)
+                Text(currentContent.isEmpty ? "Your words will appear here as you speak…" : currentContent)
+                    .foregroundStyle(currentContent.isEmpty ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
@@ -102,11 +120,11 @@ struct NewEntryView: View {
     }
 
     private var textEntry: some View {
-        TextEditor(text: $manualText)
+        TextEditor(text: $text)
             .frame(minHeight: 240)
             .padding(.horizontal)
             .overlay(alignment: .topLeading) {
-                if manualText.isEmpty {
+                if text.isEmpty {
                     Text("Write today's entry, in whatever language(s) feel right…")
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
@@ -118,7 +136,7 @@ struct NewEntryView: View {
 
     private func toggleRecording() {
         if speech.isRecording {
-            speech.stopRecording()
+            foldRecording()
             return
         }
         Task {
@@ -136,16 +154,43 @@ struct NewEntryView: View {
         }
     }
 
-    private func save() {
-        // Capture the text before stopping so a late recognition callback
-        // can't affect what we persist.
-        let text = currentTranscript
+    /// Stops recording and appends what was dictated onto the shared text,
+    /// then clears the recognizer so the next session starts fresh.
+    private func foldRecording() {
         speech.stopRecording()
+        if !speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            text = appended(text, speech.transcript)
+            usedVoice = true
+        }
+        speech.clearTranscript()
+    }
+
+    /// Joins new dictation onto existing content with a single separating
+    /// space, tolerant of leading/trailing whitespace on either side.
+    private func appended(_ base: String, _ addition: String) -> String {
+        let trimmedAddition = addition.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddition.isEmpty else { return base }
+        let trimmedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBase.isEmpty else { return trimmedAddition }
+        return trimmedBase + " " + trimmedAddition
+    }
+
+    private func save() {
+        if speech.isRecording {
+            foldRecording()
+        } else {
+            speech.stopRecording()
+        }
 
         let segments = LanguageSegmenter.segment(text)
         guard !segments.isEmpty else { return }
 
-        let entry = JournalEntry(segments: segments, source: mode == .voice ? .voice : .text)
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry = JournalEntry(
+            segments: segments,
+            source: usedVoice ? .voice : .text,
+            title: trimmedTitle.isEmpty ? nil : trimmedTitle
+        )
         modelContext.insert(entry)
         // Flush immediately rather than relying on autosave timing, so the
         // entry survives even if the app is backgrounded/killed right after.

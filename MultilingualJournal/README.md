@@ -11,12 +11,13 @@ sentence's language rather than flattening the entry to one.
 - Transcript is split into sentence-level segments and each is tagged with a
   detected language (`NaturalLanguage` framework).
 - Entries persist locally via SwiftData and show in a timeline.
-- On-demand companion chat per entry (Claude API): opens with a reflection
-  on what you wrote, replies in your entry's language(s), asks at most one
-  gentle follow-up. User-supplied API key stored in Keychain via Settings.
+- On-demand companion chat per entry (on-device Apple Intelligence): opens
+  with a reflection on what you wrote, replies in your entry's language(s),
+  asks at most one gentle follow-up. No API key or network required.
 - Optional, dismissible gentle corrections for sentences in your configured
   "language I'm learning" — up to 2 suggestions per entry, warm tone, never
-  auto-shown.
+  auto-shown. Also on-device.
+- Entries can be given an optional title (searchable; shown in the timeline).
 - Companion replies are spoken aloud (`AVSpeechSynthesizer`), voice matched
   to each reply's detected language. On by default, toggleable in Settings;
   any reply can be replayed (or stopped) by tapping its speaker icon.
@@ -61,23 +62,29 @@ deliberately left out of Phase 5 rather than rushed in.
   the language detection got right. Treat the numbers as encouragement, not
   as a proficiency measure.
 
-### Companion chat — how it works, and its current limits
+### Companion chat & corrections — powered by on-device Apple Intelligence
 
-- **Bring-your-own-key**: the app calls `api.anthropic.com` directly from
-  the device using a key you paste into Settings (Keychain-stored). This is
-  fine for personal use / a small group of technical users, but is *not*
-  how a real multi-user release should ship — a shipped app with a
-  device-stored user key works, but a key baked into the app binary instead
-  would be extractable. If this becomes a real product, add a thin backend
-  proxy so the app never holds a long-lived secret and so usage/cost can be
-  metered per user.
-- **No streaming yet**: replies come back as a single response, not
-  token-by-token — fine for short companion replies, but noticeable on
-  slower connections. Worth revisiting if replies get longer.
-- **No crisis-handling beyond a system-prompt instruction**: the companion
-  is told to respond with care and point to a crisis line if self-harm
-  language appears, but there's no dedicated detection/escalation path.
-  Treat this as a baseline, not a safety feature to rely on.
+- Both the companion (`CompanionService`) and gentle corrections
+  (`CorrectionsService`) run on Apple's **Foundation Models** framework —
+  the on-device LLM. No API key, no network call, nothing leaves the device.
+  That's a deliberate fit for a private journal, and it removes the adoption
+  friction of asking every user for their own paid API key.
+- Corrections use **guided generation** (`@Generable`), so the structured
+  result is produced by the framework rather than parsed out of free-text
+  JSON — more reliable than the previous prompt-and-parse approach.
+- **Requires iOS 26+ on an Apple-Intelligence-capable device** (iPhone 15 Pro
+  or newer, with Apple Intelligence enabled). On anything older the AI
+  features show a clear "needs a newer device" message and are otherwise
+  inert — all journaling, capture, search, streaks, and vocabulary features
+  still work everywhere, since the deployment target stays iOS 17.
+- Quality is below a frontier cloud model like Claude; that's the trade for
+  free, private, offline operation. If higher quality is ever needed, a
+  hybrid (on-device default + optional cloud key) or a hosted proxy could be
+  layered back in — the service types are the only thing that would change.
+- **No crisis-handling beyond an instruction**: the companion is told to
+  respond with care and point to a crisis line if self-harm language appears,
+  but there's no dedicated detection/escalation path. Treat as a baseline,
+  not a safety feature to rely on.
 
 ### Voice-back — how it works, and its current limits
 
@@ -129,12 +136,11 @@ Sources/
   Models/     JournalEntry (SwiftData model), EntrySegment, CompanionMessage, Correction
   Services/   SpeechRecognitionService (recording + live transcription),
               LanguageSegmenter (sentence-level language tagging),
-              CompanionService (companion chat via Claude API),
-              CorrectionsService (gentle corrections via Claude API),
+              CompanionService (companion chat via on-device Foundation Models),
+              CorrectionsService (gentle corrections via on-device Foundation Models),
               SpeechSynthesisService (voice-back via AVSpeechSynthesizer),
               EntrySearch (timeline filtering), StreakCalculator,
               VocabularyAnalyzer (word-use stats), ReminderService (local notifications),
-              KeychainService (API key storage),
               AppSettings (target language, auto-speak, reminder prefs)
   Views/      EntryListView (timeline + search + streak banner),
               NewEntryView (record/type + save), EntryDetailView,
@@ -143,9 +149,9 @@ Sources/
 Tests/
   MultilingualJournalTests/  Unit tests for the pure logic (LanguageSegmenter,
                               JournalEntry computed properties, CorrectionsService
-                              JSON parsing, EntrySearch, StreakCalculator,
-                              VocabularyAnalyzer) — no network, mic, or simulator
-                              UI interaction needed to run these.
+                              draft→Correction mapping, EntrySearch, StreakCalculator,
+                              VocabularyAnalyzer) — no network, mic, model, or
+                              simulator UI interaction needed to run these.
 ```
 
 ## CI
@@ -158,12 +164,17 @@ Linux/CI-agnostic path). It only checks compilation and the unit tests
 above; it can't exercise mic input, real speech, or actual UI/UX, so
 on-device testing is still necessary before trusting a change.
 
-## Setup: enabling the companion and corrections
+## Using the companion and corrections
 
-1. Get an API key from console.anthropic.com.
-2. In the app, tap the gear icon on the timeline → paste the key.
-3. In the same screen, set "Language I'm learning" if you want corrections.
-4. Tap Done. Open any entry → "Talk about this entry" or "See gentle corrections."
+No setup or API key needed — they run on the device's own Apple Intelligence
+model. Requirements: iOS 26+ on an Apple-Intelligence device (iPhone 15 Pro or
+newer) with Apple Intelligence enabled in iOS Settings. Then:
+
+1. (For corrections) set "Language I'm learning" in the app's Settings.
+2. Open any entry → "Talk about this entry" or "See gentle corrections."
+
+On an unsupported device the features show a clear message and do nothing;
+everything else in the app still works.
 
 ## Next steps
 

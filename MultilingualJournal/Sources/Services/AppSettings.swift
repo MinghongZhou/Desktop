@@ -1,7 +1,6 @@
 import Foundation
 
-/// Lightweight app-wide settings backed by UserDefaults (non-sensitive,
-/// unlike the API key which lives in Keychain — see KeychainService).
+/// Lightweight app-wide settings backed by UserDefaults.
 enum AppSettings {
     static let targetLanguageCodeKey = "targetLanguageCode"
     static let autoSpeakRepliesKey = "autoSpeakCompanionReplies"
