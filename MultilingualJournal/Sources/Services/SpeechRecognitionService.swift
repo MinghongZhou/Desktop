@@ -8,13 +8,20 @@ import AVFoundation
 /// language tagging happens afterward via `LanguageSegmenter` on the
 /// resulting transcript.
 ///
-/// iOS finalizes a recognition request at natural pauses (and at a length
-/// limit). A single request stops producing results once it finalizes, and
-/// each request's transcription reflects only its own audio — so naively
-/// reusing one request loses earlier sentences when the speaker pauses. To
-/// support continuous, multi-sentence dictation this keeps a `finalizedText`
-/// accumulator and starts a fresh request each time a segment finalizes,
-/// while leaving the audio engine running, so nothing spoken is dropped.
+/// Supporting continuous, multi-sentence dictation is the tricky part here.
+/// With on-device recognition, iOS frequently does NOT deliver an `isFinal`
+/// result at a natural pause — instead it silently resets the current
+/// request's internal buffer, after which `bestTranscription.formattedString`
+/// returns only the newest utterance. Relying on `isFinal` to commit earlier
+/// text therefore loses whole sentences when the speaker pauses.
+///
+/// So instead of waiting for iOS to signal the pause, this detects the pause
+/// itself: every new partial resets a short silence timer, and when that
+/// timer fires (the speaker has gone quiet) the current request's audio is
+/// ended, which forces a final result. That result is folded into a
+/// `finalizedText` accumulator and a fresh request is started over the
+/// still-running audio engine, so each spoken sentence is committed before
+/// iOS can drop it. `isFinal` is still handled as a belt-and-suspenders path.
 @MainActor
 final class SpeechRecognitionService: ObservableObject {
     @Published private(set) var transcript: String = ""
@@ -25,8 +32,13 @@ final class SpeechRecognitionService: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var task: SFSpeechRecognitionTask?
 
-    /// Text from segments iOS has already finalized. The live `transcript` is
-    /// this plus the current in-progress partial.
+    /// Fires when no new partial has arrived for `silenceInterval`, i.e. the
+    /// speaker paused — the cue to commit the current sentence and roll over.
+    private var silenceTimer: Timer?
+    private let silenceInterval: TimeInterval = 1.2
+
+    /// Text from segments already committed. The live `transcript` is this
+    /// plus the current in-progress partial.
     private var finalizedText: String = ""
 
     /// Holds the active request so the audio tap (which runs on a background
@@ -116,6 +128,9 @@ final class SpeechRecognitionService: ObservableObject {
             transcript = merged(partial: result.bestTranscription.formattedString)
             if result.isFinal {
                 rollOverSegment()
+            } else {
+                // Still speaking — restart the pause detector.
+                armSilenceTimer()
             }
         } else if error != nil {
             // The segment ended on an error (commonly a silence timeout).
@@ -125,9 +140,27 @@ final class SpeechRecognitionService: ObservableObject {
         }
     }
 
+    /// (Re)starts the silence timer. When it fires, the speaker has paused, so
+    /// we end the current request's audio to force a final result — which
+    /// commits the sentence via the `isFinal` path before iOS can silently
+    /// reset the buffer and lose it.
+    private func armSilenceTimer() {
+        silenceTimer?.invalidate()
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isRecording else { return }
+                // Ending audio triggers a final result for the current
+                // request; `handle` then rolls over to a fresh segment.
+                self.requestBox.request?.endAudio()
+            }
+        }
+    }
+
     /// Folds the just-finalized segment into the accumulator and, if still
     /// recording, opens a new segment to continue.
     private func rollOverSegment() {
+        silenceTimer?.invalidate()
+        silenceTimer = nil
         finalizedText = transcript
         task = nil
         requestBox.request = nil
@@ -147,6 +180,8 @@ final class SpeechRecognitionService: ObservableObject {
         // Set this first so late recognition callbacks are ignored and can't
         // clobber the final transcript.
         isRecording = false
+        silenceTimer?.invalidate()
+        silenceTimer = nil
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         requestBox.request?.endAudio()
