@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 /// Generates gentle, optional corrections for the target-language segments of
 /// an entry, using Apple's on-device Foundation Models with guided generation
@@ -40,6 +42,7 @@ enum CorrectionsService {
             .filter { $0.languageCode == targetLanguageCode }
         guard !targetSegments.isEmpty else { return [] }
 
+        #if canImport(FoundationModels)
         guard #available(iOS 26.0, *) else {
             throw CorrectionsError.unavailable(unavailableMessage)
         }
@@ -50,6 +53,10 @@ enum CorrectionsService {
             languageName: languageName
         )
         return mapDrafts(drafts, targetSegments: targetSegments)
+        #else
+        // Built with an SDK that predates Foundation Models (Xcode < 26).
+        throw CorrectionsError.unavailable(unavailableMessage)
+        #endif
     }
 
     static let unavailableMessage =
@@ -95,6 +102,7 @@ enum CorrectionsService {
     }
 }
 
+#if canImport(FoundationModels)
 @available(iOS 26.0, *)
 private enum OnDeviceCorrections {
     @Generable
@@ -135,3 +143,4 @@ private enum OnDeviceCorrections {
         }
     }
 }
+#endif

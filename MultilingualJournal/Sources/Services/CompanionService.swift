@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 /// Produces the journaling companion's replies using Apple's on-device
 /// Foundation Models framework — no API key, no network, nothing leaves the
@@ -51,6 +53,7 @@ enum CompanionService {
         history: [CompanionMessage],
         newUserMessage: String?
     ) async throws -> String {
+        #if canImport(FoundationModels)
         guard #available(iOS 26.0, *) else {
             throw CompanionError.unavailable(Self.unavailableMessage)
         }
@@ -59,6 +62,10 @@ enum CompanionService {
             history: history,
             newUserMessage: newUserMessage
         )
+        #else
+        // Built with an SDK that predates Foundation Models (Xcode < 26).
+        throw CompanionError.unavailable(Self.unavailableMessage)
+        #endif
     }
 
     static let unavailableMessage =
@@ -93,6 +100,7 @@ enum CompanionService {
     }
 }
 
+#if canImport(FoundationModels)
 @available(iOS 26.0, *)
 private enum OnDeviceCompanion {
     static func reply(entryText: String, history: [CompanionMessage], newUserMessage: String?) async throws -> String {
@@ -126,3 +134,4 @@ private enum OnDeviceCompanion {
         }
     }
 }
+#endif
