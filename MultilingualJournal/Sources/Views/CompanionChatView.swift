@@ -65,8 +65,10 @@ struct CompanionChatView: View {
 
                 inputBar
             }
+            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("Companion")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(Theme.accentDeep)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
@@ -90,10 +92,12 @@ struct CompanionChatView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("What you wrote")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondary)
             Text(entry.fullText)
-                .padding(10)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.bodyText)
+                .padding(12)
+                .background(Theme.neutral, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -101,11 +105,14 @@ struct CompanionChatView: View {
         HStack(alignment: .bottom) {
             if message.role == .companion { EmptyView() } else { Spacer(minLength: 40) }
             Text(message.text)
-                .padding(10)
+                .font(message.role == .companion ? Theme.serif(16, weight: .regular) : .system(size: 15))
+                .foregroundStyle(message.role == .companion ? Theme.bodyText : .white)
+                .padding(12)
                 .background(
-                    message.role == .user ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15),
-                    in: RoundedRectangle(cornerRadius: 12)
+                    message.role == .user ? Theme.accent : Theme.card,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                 )
+                .shadow(color: message.role == .companion ? Theme.cardShadow : .clear, radius: 8, y: 4)
             if message.role == .companion {
                 Button {
                     speech.speak(message.text)

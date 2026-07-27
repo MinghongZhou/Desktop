@@ -1,11 +1,13 @@
 import SwiftUI
+import SwiftData
 
-/// Streak + vocabulary progress. Framed as encouragement rather than
-/// assessment — see `VocabularyStats` for why the word counts are a "words
-/// you've used" signal, not a proficiency measure.
+/// The "Trends" tab: streak + vocabulary progress in the warm design language.
+/// Framed as encouragement rather than assessment — see `VocabularyStats` for
+/// why the word counts are a "words you've used" signal, not proficiency.
+/// Runs as a tab root (no NavigationStack/Done of its own — RootView provides
+/// the stack) and reads entries via `@Query`.
 struct JournalProgressView: View {
-    let entries: [JournalEntry]
-    @Environment(\.dismiss) private var dismiss
+    @Query(sort: \JournalEntry.date, order: .reverse) private var entries: [JournalEntry]
     @AppStorage(AppSettings.targetLanguageCodeKey) private var targetLanguageCode: String = ""
 
     private var currentStreak: Int {
@@ -30,58 +32,183 @@ struct JournalProgressView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("Journaling") {
-                    statRow(label: "Current streak", value: "\(currentStreak) day\(currentStreak == 1 ? "" : "s")")
-                    statRow(label: "Longest streak", value: "\(longestStreak) day\(longestStreak == 1 ? "" : "s")")
-                    statRow(label: "Total entries", value: "\(entries.count)")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Your growth")
+                    .font(Theme.serif(28))
+                    .foregroundStyle(Theme.heading)
+                    .padding(.top, 8)
+
+                HStack(spacing: 10) {
+                    StatTile(label: "Current streak", value: "\(currentStreak)", unit: currentStreak == 1 ? "day" : "days", tone: .terracotta)
+                    StatTile(label: "Longest streak", value: "\(longestStreak)", unit: longestStreak == 1 ? "day" : "days", tone: .neutral)
                 }
+
+                StatTile(label: "Total entries", value: "\(entries.count)", unit: entries.count == 1 ? "entry" : "entries", tone: .neutral)
+                    .frame(maxWidth: .infinity)
+
+                Text("Practice calendar")
+                    .sectionLabel()
+                    .padding(.top, 6)
+                calendar
 
                 if targetLanguageCode.isEmpty {
-                    Section {
-                        Text("Set the language you're learning in Settings to see your vocabulary grow here.")
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                    }
+                    Text("Set the language you're learning in Settings to see your vocabulary grow here.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.secondary)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .warmCard()
                 } else {
-                    Section("\(targetLanguageName) vocabulary") {
-                        statRow(label: "Distinct words used", value: "\(vocabulary.totalUniqueWords)")
-                        statRow(label: "New in the last 30 days", value: "\(vocabulary.newWordsInPeriod)")
+                    Text("\(targetLanguageName) vocabulary")
+                        .sectionLabel()
+                        .padding(.top, 6)
+                    HStack(spacing: 10) {
+                        StatTile(label: "Distinct words", value: "\(vocabulary.totalUniqueWords)", unit: "used", tone: .sage)
+                        StatTile(label: "New (30 days)", value: "\(vocabulary.newWordsInPeriod)", unit: "words", tone: .terracotta)
                     }
-
                     if !vocabulary.recentNewWords.isEmpty {
-                        Section {
-                            Text(vocabulary.recentNewWords.joined(separator: " · "))
-                                .font(.subheadline)
-                        } header: {
+                        VStack(alignment: .leading, spacing: 10) {
                             Text("Recently used for the first time")
-                        } footer: {
-                            Text("Counts words you've actually written in \(targetLanguageName). It doesn't check whether they were used correctly — that's what gentle corrections are for.")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Theme.secondary)
+                            FlowChips(items: vocabulary.recentNewWords)
                         }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .warmCard()
                     }
                 }
             }
-            .navigationTitle("Progress")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .scrollContentBackground(.hidden)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// A 4-week heatmap of days with entries, in the terracotta accent.
+    private var calendar: some View {
+        let cal = Calendar.current
+        let days = Set(entries.map { cal.startOfDay(for: $0.date) })
+        let today = cal.startOfDay(for: .now)
+        let cells = (0..<28).reversed().map { offset -> Bool in
+            guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { return false }
+            return days.contains(day)
+        }
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
+            ForEach(cells.indices, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(cells[i] ? Theme.accent : Theme.line)
+                    .aspectRatio(1, contentMode: .fit)
             }
+        }
+        .padding(16)
+        .warmCard()
+    }
+}
+
+private struct StatTile: View {
+    enum Tone { case terracotta, sage, neutral }
+    let label: String
+    let value: String
+    let unit: String
+    let tone: Tone
+
+    private var background: Color {
+        switch tone {
+        case .terracotta: return Theme.accentSoft
+        case .sage: return Theme.sageSoft
+        case .neutral: return Theme.neutral
         }
     }
 
-    private func statRow(label: String, value: String) -> some View {
-        HStack {
+    private var valueColor: Color {
+        switch tone {
+        case .terracotta: return Theme.accentDeep
+        case .sage: return Theme.sageDark
+        case .neutral: return Theme.heading
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(label)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(valueColor.opacity(0.8))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(Theme.serif(26))
+                    .foregroundStyle(valueColor)
+                Text(unit)
+                    .font(.system(size: 13))
+                    .foregroundStyle(valueColor.opacity(0.7))
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// Simple wrapping chip row for vocabulary words.
+private struct FlowChips: View {
+    let items: [String]
+
+    var body: some View {
+        // A basic wrapping layout using a flexible grid of chips.
+        FlexibleChipLayout(spacing: 8) {
+            ForEach(items, id: \.self) { word in
+                Text(word)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.accentDeep)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Theme.accentSoft, in: Capsule())
+            }
+        }
+    }
+}
+
+/// Minimal flow layout so chips wrap onto multiple lines.
+private struct FlexibleChipLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }
 
 #Preview {
-    JournalProgressView(entries: [])
+    NavigationStack { JournalProgressView() }
+        .modelContainer(for: JournalEntry.self, inMemory: true)
 }
