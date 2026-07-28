@@ -34,14 +34,16 @@ struct CorrectionsView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(correction.originalText)
                                     .strikethrough()
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.secondary)
                                 Text(correction.suggestion)
-                                    .fontWeight(.medium)
+                                    .font(Theme.serif(16))
+                                    .foregroundStyle(Theme.heading)
                                 Text(correction.note)
                                     .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.secondary)
                             }
                             .padding(.vertical, 4)
+                            .listRowBackground(Theme.card)
                             .swipeActions {
                                 Button("Dismiss", role: .destructive) {
                                     dismissCorrection(correction)
@@ -49,10 +51,13 @@ struct CorrectionsView: View {
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)
                 }
             }
+            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("Gentle corrections")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(Theme.accentDeep)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }

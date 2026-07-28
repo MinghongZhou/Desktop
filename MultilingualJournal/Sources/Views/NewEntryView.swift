@@ -81,8 +81,10 @@ struct NewEntryView: View {
                 Spacer()
             }
             .padding(.top)
+            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("New Entry")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(Theme.accentDeep)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -139,20 +141,28 @@ struct NewEntryView: View {
 
             ScrollView {
                 Text(currentContent.isEmpty ? "Your words will appear here as you speak…" : currentContent)
-                    .foregroundStyle(currentContent.isEmpty ? .secondary : .primary)
+                    .font(.system(size: 16))
+                    .foregroundStyle(currentContent.isEmpty ? Theme.secondary : Theme.bodyText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
             .frame(minHeight: 200)
-            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+            .warmCard()
             .padding(.horizontal)
 
             Button {
                 toggleRecording()
             } label: {
-                Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(speech.isRecording ? .red : .accentColor)
+                ZStack {
+                    Circle()
+                        .fill(speech.isRecording ? Theme.accentDeep : Theme.accent)
+                        .frame(width: 78, height: 78)
+                    if speech.isRecording {
+                        RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: 26, height: 26)
+                    } else {
+                        Image(systemName: "mic.fill").font(.system(size: 30)).foregroundStyle(.white)
+                    }
+                }
             }
         }
     }

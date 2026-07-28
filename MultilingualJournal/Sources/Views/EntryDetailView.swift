@@ -13,24 +13,32 @@ struct EntryDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     if let title = entry.title, !title.isEmpty {
                         Text(title)
-                            .font(.title2.weight(.bold))
+                            .font(Theme.serif(26))
+                            .foregroundStyle(Theme.heading)
                     }
                     Text(entry.date, style: .date)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.secondary)
                 }
 
-                ForEach(entry.segments.sorted(by: { $0.order < $1.order })) { segment in
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let code = segment.languageCode {
-                            LanguageBadge(languageCode: code)
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(entry.segments.sorted(by: { $0.order < $1.order })) { segment in
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let code = segment.languageCode {
+                                LanguageBadge(languageCode: code)
+                            }
+                            Text(segment.text)
+                                .font(.system(size: 16))
+                                .foregroundStyle(Theme.bodyText)
                         }
-                        Text(segment.text)
                     }
                 }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .warmCard()
 
                 Button {
                     isShowingCompanion = true
@@ -40,20 +48,26 @@ struct EntryDetailView: View {
                         systemImage: "bubble.left.and.bubble.right"
                     )
                 }
-                .buttonStyle(.borderedProminent)
-                .padding(.top, 8)
+                .buttonStyle(TerracottaButtonStyle())
 
                 if hasTargetLanguageSegments {
                     Button {
                         isShowingCorrections = true
                     } label: {
                         Label("See gentle corrections", systemImage: "sparkles")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Theme.accentDeep)
+                            .frame(maxWidth: .infinity)
+                            .padding(14)
+                            .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                 }
             }
-            .padding()
+            .padding(20)
         }
+        .background(Theme.bg.ignoresSafeArea())
+        .scrollContentBackground(.hidden)
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingCompanion) {

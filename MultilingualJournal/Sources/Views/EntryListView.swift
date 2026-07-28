@@ -3,10 +3,7 @@ import SwiftData
 
 struct EntryListView: View {
     @Query(sort: \JournalEntry.date, order: .reverse) private var entries: [JournalEntry]
-    @Environment(\.modelContext) private var modelContext
     @State private var isPresentingNewEntry = false
-    @State private var isPresentingSettings = false
-    @State private var isPresentingProgress = false
     @State private var searchText = ""
 
     private var visibleEntries: [JournalEntry] {
@@ -19,136 +16,187 @@ struct EntryListView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if entries.isEmpty {
-                    ContentUnavailableView(
-                        "No entries yet",
-                        systemImage: "mic.circle",
-                        description: Text("Tap the mic to record your first journal entry, in any language.")
-                    )
-                } else if visibleEntries.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                } else {
-                    List {
-                        if searchText.isEmpty, currentStreak > 0 {
-                            StreakBanner(streak: currentStreak) {
-                                isPresentingProgress = true
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+
+                    if entries.isEmpty {
+                        emptyState
+                    } else {
+                        if searchText.isEmpty {
+                            if currentStreak > 0 { streakCard }
+                            newEntryButton
+                        }
+                        Text(searchText.isEmpty ? "Recent entries" : "Results")
+                            .sectionLabel()
+                            .padding(.top, 4)
+
+                        if visibleEntries.isEmpty {
+                            Text("No entries match “\(searchText)”.")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.secondary)
+                                .padding(.vertical, 8)
+                        } else {
+                            ForEach(visibleEntries) { entry in
+                                NavigationLink(value: entry) {
+                                    EntryCard(entry: entry)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
-                        ForEach(visibleEntries) { entry in
-                            NavigationLink(value: entry) {
-                                EntryRow(entry: entry)
-                            }
-                        }
-                        .onDelete(perform: deleteEntries)
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
+            .background(Theme.bg.ignoresSafeArea())
+            .scrollContentBackground(.hidden)
             .searchable(
                 text: $searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "Search your entries"
             )
-            .navigationTitle("Journal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: JournalEntry.self) { entry in
                 EntryDetailView(entry: entry)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        isPresentingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        isPresentingProgress = true
-                    } label: {
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isPresentingNewEntry = true
-                    } label: {
-                        Image(systemName: "mic.fill")
-                    }
-                }
             }
             .sheet(isPresented: $isPresentingNewEntry) {
                 NewEntryView()
             }
-            .sheet(isPresented: $isPresentingSettings) {
-                SettingsView()
-            }
-            .sheet(isPresented: $isPresentingProgress) {
-                JournalProgressView(entries: entries)
-            }
         }
     }
 
-    /// Offsets come from the *filtered* list, so they must be resolved
-    /// against `visibleEntries` — indexing into `entries` would delete the
-    /// wrong row whenever a search is active.
-    private func deleteEntries(at offsets: IndexSet) {
-        let toDelete = offsets.map { visibleEntries[$0] }
-        for entry in toDelete {
-            modelContext.delete(entry)
+    // MARK: - Pieces
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(greeting)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.secondary)
+            Text("Your journal")
+                .font(Theme.serif(28))
+                .foregroundStyle(Theme.heading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 5..<12: return "Good morning"
+        case 12..<17: return "Good afternoon"
+        default: return "Good evening"
         }
     }
-}
 
-private struct StreakBanner: View {
-    let streak: Int
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
+    private var streakCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("\(currentStreak)-day streak")
+                    .font(Theme.serif(20))
+                    .foregroundStyle(Theme.accentDeep)
+                Spacer()
                 Image(systemName: "flame.fill")
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(streak) day\(streak == 1 ? "" : "s") in a row")
-                        .font(.subheadline.weight(.medium))
-                    Text("See your progress")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.accent)
+            }
+            HStack(spacing: 6) {
+                ForEach(weekActivity.indices, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(weekActivity[i] ? Theme.accent : Theme.line)
+                        .frame(height: 8)
+                }
+            }
+        }
+        .padding(18)
+        .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    /// Last 7 days (oldest→today), true where an entry exists.
+    private var weekActivity: [Bool] {
+        let cal = Calendar.current
+        let days = Set(entries.map { cal.startOfDay(for: $0.date) })
+        let today = cal.startOfDay(for: .now)
+        return (0..<7).reversed().map { offset in
+            guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { return false }
+            return days.contains(day)
+        }
+    }
+
+    private var newEntryButton: some View {
+        Button {
+            isPresentingNewEntry = true
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Today")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text("Start a new entry")
+                        .font(Theme.serif(18))
+                        .foregroundStyle(.white)
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                ZStack {
+                    Circle().fill(Theme.accent).frame(width: 52, height: 52)
+                    Image(systemName: "mic.fill").foregroundStyle(.white)
+                }
             }
+            .padding(22)
+            .background(Theme.accentDeep, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
     }
+
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            newEntryButton
+            VStack(spacing: 6) {
+                Text("No entries yet")
+                    .font(Theme.serif(20))
+                    .foregroundStyle(Theme.heading)
+                Text("Tap above to record or write your first entry, in any language.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 20)
+    }
 }
 
-private struct EntryRow: View {
+private struct EntryCard: View {
     let entry: JournalEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(entry.displayTitle)
-                .font(.headline)
-                .lineLimit(1)
-            Text(entry.date, style: .date)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(entry.fullText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            if !entry.languageCodes.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(entry.date, format: .dateTime.month().day())
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.secondary)
+                Spacer()
                 HStack(spacing: 4) {
                     ForEach(entry.languageCodes, id: \.self) { code in
                         LanguageBadge(languageCode: code)
                     }
                 }
             }
+            if let title = entry.title, !title.isEmpty {
+                Text(title)
+                    .font(Theme.serif(17))
+                    .foregroundStyle(Theme.heading)
+                    .lineLimit(1)
+            }
+            Text(entry.fullText)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.bodyText)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 4)
+        .padding(18)
+        .warmCard()
     }
 }
 

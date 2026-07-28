@@ -5,7 +5,7 @@ import SwiftData
 struct MultilingualJournalApp: App {
     var body: some Scene {
         WindowGroup {
-            EntryListView()
+            RootView()
         }
         .modelContainer(for: JournalEntry.self)
     }
