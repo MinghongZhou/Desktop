@@ -18,6 +18,8 @@ sentence's language rather than flattening the entry to one.
   "language I'm learning" — up to 2 suggestions per entry, warm tone, never
   auto-shown. Also on-device.
 - Entries can be given an optional title (searchable; shown in the timeline).
+- Topics: current news (via target-language RSS feeds) turned into journaling
+  prompts, with the article cited on any entry written about it.
 - Companion replies are spoken aloud (`AVSpeechSynthesizer`), voice matched
   to each reply's detected language. On by default, toggleable in Settings;
   any reply can be replayed (or stopped) by tapping its speaker icon.
@@ -44,6 +46,37 @@ deliberately left out of Phase 5 rather than rushed in.
   anything already natural — the goal is occasional, useful nudges, not an
   error-checker. This is a prompt-level constraint, not a guarantee; keep an
   eye on tone as you use it for real.
+
+### Topics — how they work, and their current limits
+
+- A **Topic** is a real news headline (fetched from a target-language RSS
+  feed) wrapped in a hand-written, per-language **prompt template** — so the
+  prompt is current, in the language you're learning, and grammatically
+  correct without any AI. Works on every device (no iOS 26 / Apple
+  Intelligence needed, unlike the companion): `TopicPromptBuilder` +
+  `FeedCatalog` + `RSSFeedParser` are pure and unit-tested; `TopicService`
+  does the one network call.
+- Surfaced as a **Topics tab** (browse/refresh) and a **"Today's topic"** card
+  on Home. Journaling from a topic pre-fills the prompt and stores the
+  article citation (`sourceHeadline`/`sourceURL`/`sourcePublisher`) on the
+  entry, shown as "Inspired by …" with a link out in the entry detail.
+- **Network**: fetching feeds is the *only* part of the app that reaches the
+  internet — journal entries never leave the device. On by default;
+  toggleable in Settings → Topics → "News topics" (off = timeless prompts,
+  fully offline).
+- **Feeds** (curated): BBC's multilingual feeds for en/es/zh/ar, Le Monde
+  (fr), NHK (ja); other target languages fall back to English news (the
+  Topics tab says so). Only headline + link-out are shown — never full
+  article text.
+- **Limits worth knowing**: RSS feeds can change format, rate-limit, or go
+  down — the service fails soft to evergreen prompts when that happens. And
+  the **non-English prompt templates are written to be simple and safe but
+  have NOT been reviewed by fluent speakers** — a real release should have a
+  native speaker vet them, since a learning app shouldn't ship unverified
+  target-language text.
+- **Not yet done**: optional on-device-AI *enrichment* of the templated
+  prompts (deliberately deferred — it would add latency and re-introduce the
+  iOS-26 dependency for a marginal gain over the already-natural templates).
 
 ### Streaks, reminders, and vocabulary — how they work
 

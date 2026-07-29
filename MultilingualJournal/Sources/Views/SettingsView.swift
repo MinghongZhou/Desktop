@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.autoSpeakRepliesKey) private var autoSpeakReplies: Bool = true
     @AppStorage(AppSettings.dailyReminderEnabledKey) private var dailyReminderEnabled: Bool = false
     @AppStorage(AppSettings.dailyReminderMinutesKey) private var reminderMinutes: Int = AppSettings.defaultReminderMinutes
+    @AppStorage(AppSettings.newsTopicsEnabledKey) private var newsTopicsEnabled: Bool = true
     @State private var reminderPermissionDenied = false
 
     private var reminderTime: Binding<Date> {
@@ -77,6 +78,16 @@ struct SettingsView: View {
                     }
                 }
                 footnote("Gentle corrections only look at sentences detected in this language.")
+
+                Text("Topics")
+                    .sectionLabel()
+                    .padding(.top, 6)
+                card {
+                    Toggle("News topics", isOn: $newsTopicsEnabled)
+                        .font(.system(size: 15))
+                        .tint(Theme.accent)
+                }
+                footnote("Turns current news into journaling prompts in your target language. This is the only feature that fetches from the internet — your journal entries always stay on this device. With it off, Topics shows timeless prompts instead.")
 
                 Text("Companion")
                     .sectionLabel()

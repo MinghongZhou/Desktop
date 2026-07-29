@@ -3,11 +3,21 @@ import SwiftData
 
 struct EntryListView: View {
     @Query(sort: \JournalEntry.date, order: .reverse) private var entries: [JournalEntry]
+    @AppStorage(AppSettings.targetLanguageCodeKey) private var targetLanguageCode: String = ""
+    @AppStorage(AppSettings.newsTopicsEnabledKey) private var newsEnabled: Bool = true
     @State private var isPresentingNewEntry = false
     @State private var searchText = ""
+    @State private var todaysTopic: Topic?
+    @State private var topicForEntry: Topic?
 
     private var visibleEntries: [JournalEntry] {
         EntrySearch.filter(entries, query: searchText)
+    }
+
+    private var languageCode: String {
+        targetLanguageCode.isEmpty
+            ? (Locale.current.language.languageCode?.identifier ?? "en")
+            : targetLanguageCode
     }
 
     private var currentStreak: Int {
@@ -25,6 +35,7 @@ struct EntryListView: View {
                     } else {
                         if searchText.isEmpty {
                             if currentStreak > 0 { streakCard }
+                            if let topic = todaysTopic { todaysTopicCard(topic) }
                             newEntryButton
                         }
                         Text(searchText.isEmpty ? "Recent entries" : "Results")
@@ -64,7 +75,48 @@ struct EntryListView: View {
             .sheet(isPresented: $isPresentingNewEntry) {
                 NewEntryView()
             }
+            .sheet(item: $topicForEntry) { topic in
+                NewEntryView(topic: topic)
+            }
+            .task {
+                if todaysTopic == nil {
+                    let topics = await TopicService.fetchTopics(languageCode: languageCode, newsEnabled: newsEnabled, limit: 1)
+                    todaysTopic = topics.first
+                }
+            }
         }
+    }
+
+    private func todaysTopicCard(_ topic: Topic) -> some View {
+        Button {
+            topicForEntry = topic
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Today's topic")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .textCase(.uppercase)
+                    Spacer()
+                    Image(systemName: "newspaper.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                Text(topic.prompt)
+                    .font(Theme.serif(18))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if topic.hasSource {
+                    Text("via \(topic.publisher)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+            }
+            .padding(20)
+            .background(Theme.accentDeep, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Pieces

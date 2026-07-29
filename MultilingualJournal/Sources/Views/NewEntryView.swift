@@ -2,6 +2,10 @@ import SwiftUI
 import Speech
 
 struct NewEntryView: View {
+    /// When present, the entry is being written in response to a Topic: its
+    /// prompt is shown as a banner and its article is cited on the saved entry.
+    var topic: Topic? = nil
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @StateObject private var speech = SpeechRecognitionService()
@@ -61,6 +65,10 @@ struct NewEntryView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
+                if let topic {
+                    topicBanner(topic)
+                }
+
                 TextField("Title (optional)", text: $title)
                     .font(.headline)
                     .textFieldStyle(.roundedBorder)
@@ -202,6 +210,28 @@ struct NewEntryView: View {
         }
     }
 
+    private func topicBanner(_ topic: Topic) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Today's topic")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.accentDeep)
+                .textCase(.uppercase)
+            Text(topic.prompt)
+                .font(Theme.serif(17))
+                .foregroundStyle(Theme.heading)
+                .fixedSize(horizontal: false, vertical: true)
+            if topic.hasSource {
+                Text("via \(topic.publisher)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal)
+    }
+
     /// Stops recording and appends what was dictated onto the shared text,
     /// then clears the recognizer so the next session starts fresh.
     private func foldRecording() {
@@ -237,7 +267,10 @@ struct NewEntryView: View {
         let entry = JournalEntry(
             segments: segments,
             source: usedVoice ? .voice : .text,
-            title: trimmedTitle.isEmpty ? nil : trimmedTitle
+            title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+            sourceHeadline: topic?.hasSource == true ? topic?.headline : nil,
+            sourceURL: topic?.hasSource == true ? topic?.articleURL : nil,
+            sourcePublisher: topic?.hasSource == true ? topic?.publisher : nil
         )
         modelContext.insert(entry)
         // Flush immediately rather than relying on autosave timing, so the
