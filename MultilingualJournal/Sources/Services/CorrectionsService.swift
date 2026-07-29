@@ -44,7 +44,7 @@ enum CorrectionsService {
 
         #if canImport(FoundationModels)
         guard #available(iOS 26.0, *) else {
-            throw CorrectionsError.unavailable(unavailableMessage)
+            throw CorrectionsError.unavailable(osTooOldMessage)
         }
 
         let languageName = Locale.current.localizedString(forLanguageCode: targetLanguageCode) ?? targetLanguageCode
@@ -54,13 +54,17 @@ enum CorrectionsService {
         )
         return mapDrafts(drafts, targetSegments: targetSegments)
         #else
-        // Built with an SDK that predates Foundation Models (Xcode < 26).
-        throw CorrectionsError.unavailable(unavailableMessage)
+        // Built with an SDK that predates Foundation Models (Xcode < 26) — a
+        // property of the build machine's Xcode, not the phone's iOS version.
+        throw CorrectionsError.unavailable(compiledWithoutSupportMessage)
         #endif
     }
 
-    static let unavailableMessage =
-        "Gentle corrections run on Apple Intelligence, which needs iOS 26 or later on a supported device (iPhone 15 Pro or newer)."
+    static let compiledWithoutSupportMessage =
+        "This build was compiled without Apple Intelligence support. Rebuild the app with Xcode 26 or later (updating the phone to iOS 26 isn't enough — the app itself must be built on Xcode 26)."
+
+    static let osTooOldMessage =
+        "Gentle corrections need iOS 26 or later."
 
     /// Maps model drafts back to the segments they refer to, dropping any with
     /// an out-of-range index. Pure and framework-free for testability.
@@ -125,8 +129,10 @@ private enum OnDeviceCorrections {
         switch SystemLanguageModel.default.availability {
         case .available:
             break
-        default:
-            throw CorrectionsService.CorrectionsError.unavailable(CorrectionsService.unavailableMessage)
+        case .unavailable(let reason):
+            throw CorrectionsService.CorrectionsError.unavailable(message(for: reason))
+        @unknown default:
+            throw CorrectionsService.CorrectionsError.unavailable("Apple Intelligence isn't available on this device right now.")
         }
 
         let session = LanguageModelSession(instructions: CorrectionsService.instructions(languageName: languageName))
@@ -140,6 +146,19 @@ private enum OnDeviceCorrections {
             }
         } catch {
             throw CorrectionsService.CorrectionsError.requestFailed(error.localizedDescription)
+        }
+    }
+
+    static func message(for reason: SystemLanguageModel.Availability.UnavailableReason) -> String {
+        switch reason {
+        case .deviceNotEligible:
+            return "This device doesn't support Apple Intelligence, so corrections can't run here. (It needs an iPhone 15 Pro or newer.)"
+        case .appleIntelligenceNotEnabled:
+            return "Turn on Apple Intelligence to use corrections: Settings → Apple Intelligence & Siri → turn it on."
+        case .modelNotReady:
+            return "Apple Intelligence is still downloading its model. Try again once it finishes (Settings → Apple Intelligence & Siri)."
+        @unknown default:
+            return "Apple Intelligence isn't available on this device right now."
         }
     }
 }
