@@ -55,7 +55,7 @@ enum CompanionService {
     ) async throws -> String {
         #if canImport(FoundationModels)
         guard #available(iOS 26.0, *) else {
-            throw CompanionError.unavailable(Self.unavailableMessage)
+            throw CompanionError.unavailable(Self.osTooOldMessage)
         }
         return try await OnDeviceCompanion.reply(
             entryText: entry.fullText,
@@ -63,13 +63,18 @@ enum CompanionService {
             newUserMessage: newUserMessage
         )
         #else
-        // Built with an SDK that predates Foundation Models (Xcode < 26).
-        throw CompanionError.unavailable(Self.unavailableMessage)
+        // Built with an SDK that predates Foundation Models (Xcode < 26). Note
+        // this is about the *build machine's* Xcode, not the phone's iOS — an
+        // app compiled on old Xcode can't use Apple Intelligence even on iOS 26.
+        throw CompanionError.unavailable(Self.compiledWithoutSupportMessage)
         #endif
     }
 
-    static let unavailableMessage =
-        "The companion runs on Apple Intelligence, which needs iOS 26 or later on a supported device (iPhone 15 Pro or newer). Your journal entries still work everywhere."
+    static let compiledWithoutSupportMessage =
+        "This build was compiled without Apple Intelligence support. Rebuild the app with Xcode 26 or later (updating the phone to iOS 26 isn't enough — the app itself must be built on Xcode 26)."
+
+    static let osTooOldMessage =
+        "The companion needs iOS 26 or later. Your journal entries still work everywhere."
 
     /// Builds the single prompt describing the entry and conversation so far.
     /// Shared with the on-device path (kept here, free of framework types, so
@@ -107,10 +112,10 @@ private enum OnDeviceCompanion {
         switch SystemLanguageModel.default.availability {
         case .available:
             break
-        case .unavailable:
-            throw CompanionService.CompanionError.unavailable(CompanionService.unavailableMessage)
+        case .unavailable(let reason):
+            throw CompanionService.CompanionError.unavailable(message(for: reason))
         @unknown default:
-            throw CompanionService.CompanionError.unavailable(CompanionService.unavailableMessage)
+            throw CompanionService.CompanionError.unavailable("Apple Intelligence isn't available on this device right now.")
         }
 
         let session = LanguageModelSession(instructions: CompanionService.systemPrompt)
@@ -131,6 +136,21 @@ private enum OnDeviceCompanion {
             throw error
         } catch {
             throw CompanionService.CompanionError.requestFailed(error.localizedDescription)
+        }
+    }
+
+    /// Turns the framework's reason into a message that tells the user exactly
+    /// what to do, rather than a generic "needs iOS 26".
+    static func message(for reason: SystemLanguageModel.Availability.UnavailableReason) -> String {
+        switch reason {
+        case .deviceNotEligible:
+            return "This device doesn't support Apple Intelligence, so the companion can't run here. (It needs an iPhone 15 Pro or newer.)"
+        case .appleIntelligenceNotEnabled:
+            return "Turn on Apple Intelligence to use the companion: Settings → Apple Intelligence & Siri → turn it on."
+        case .modelNotReady:
+            return "Apple Intelligence is still downloading its model. This can take a while on Wi-Fi — try again once it finishes (Settings → Apple Intelligence & Siri)."
+        @unknown default:
+            return "Apple Intelligence isn't available on this device right now."
         }
     }
 }
