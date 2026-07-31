@@ -10,6 +10,11 @@ struct RootView: View {
                 .tabItem { Label("Home", systemImage: "house.fill") }
 
             NavigationStack {
+                TopicsView()
+            }
+            .tabItem { Label("Topics", systemImage: "newspaper.fill") }
+
+            NavigationStack {
                 JournalProgressView()
             }
             .tabItem { Label("Trends", systemImage: "chart.bar.fill") }

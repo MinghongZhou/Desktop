@@ -24,6 +24,10 @@ struct EntryDetailView: View {
                         .foregroundStyle(Theme.secondary)
                 }
 
+                if let headline = entry.sourceHeadline, !headline.isEmpty {
+                    sourceCitation(headline: headline)
+                }
+
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(entry.segments.sorted(by: { $0.order < $1.order })) { segment in
                         VStack(alignment: .leading, spacing: 6) {
@@ -76,5 +80,34 @@ struct EntryDetailView: View {
         .sheet(isPresented: $isShowingCorrections) {
             CorrectionsView(entry: entry)
         }
+    }
+
+    private func sourceCitation(headline: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Inspired by")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.accentDeep)
+                .textCase(.uppercase)
+            if let urlString = entry.sourceURL, let url = URL(string: urlString), !urlString.isEmpty {
+                Link(destination: url) {
+                    Text(headline)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.accentDeep)
+                        .multilineTextAlignment(.leading)
+                }
+            } else {
+                Text(headline)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.bodyText)
+            }
+            if let publisher = entry.sourcePublisher, !publisher.isEmpty {
+                Text("via \(publisher)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

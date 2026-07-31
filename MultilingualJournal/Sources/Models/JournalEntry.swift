@@ -17,12 +17,31 @@ final class JournalEntry {
     var corrections: [Correction] = []
     var correctionsFetchedAt: Date?
 
-    init(date: Date = .now, segments: [EntrySegment], source: EntrySource, title: String? = nil, moodTag: String? = nil) {
+    // Optional citation when the entry was written in response to a Topic
+    // (a news article turned into a prompt). Entries keep the source so it
+    // can be shown and linked, while the article itself stays external.
+    var sourceHeadline: String?
+    var sourceURL: String?
+    var sourcePublisher: String?
+
+    init(
+        date: Date = .now,
+        segments: [EntrySegment],
+        source: EntrySource,
+        title: String? = nil,
+        moodTag: String? = nil,
+        sourceHeadline: String? = nil,
+        sourceURL: String? = nil,
+        sourcePublisher: String? = nil
+    ) {
         self.date = date
         self.segments = segments
         self.source = source
         self.title = title
         self.moodTag = moodTag
+        self.sourceHeadline = sourceHeadline
+        self.sourceURL = sourceURL
+        self.sourcePublisher = sourcePublisher
     }
 
     /// A short label for lists: the user's title if given, otherwise the

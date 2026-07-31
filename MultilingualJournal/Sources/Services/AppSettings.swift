@@ -5,6 +5,9 @@ enum AppSettings {
     static let targetLanguageCodeKey = "targetLanguageCode"
     static let autoSpeakRepliesKey = "autoSpeakCompanionReplies"
     static let lastRecordingLocaleKey = "lastRecordingLocaleIdentifier"
+    /// Whether to fetch news-based topics (makes outbound network requests).
+    /// On by default; journal entries never leave the device regardless.
+    static let newsTopicsEnabledKey = "newsTopicsEnabled"
     static let dailyReminderEnabledKey = "dailyReminderEnabled"
     /// Reminder time stored as minutes past midnight, so it survives as a
     /// plain Int in UserDefaults rather than needing Date encoding.
