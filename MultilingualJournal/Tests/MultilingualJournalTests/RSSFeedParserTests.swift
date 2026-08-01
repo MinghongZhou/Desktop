@@ -47,6 +47,38 @@ final class RSSFeedParserTests: XCTestCase {
         XCTAssertTrue(RSSFeedParser.parse(Data("not xml".utf8)).isEmpty)
     }
 
+    func testExtractsImageFromMediaThumbnail() {
+        let xml = """
+        <rss xmlns:media="http://search.yahoo.com/mrss/"><channel>
+          <item>
+            <title>Story</title><link>https://example.com/s</link>
+            <media:thumbnail width="240" height="135" url="https://img.example.com/pic.jpg"/>
+          </item>
+        </channel></rss>
+        """
+        let items = RSSFeedParser.parse(Data(xml.utf8))
+        XCTAssertEqual(items.first?.imageURL, "https://img.example.com/pic.jpg")
+    }
+
+    func testExtractsImageFromEnclosure() {
+        let xml = """
+        <rss><channel>
+          <item>
+            <title>Story</title><link>https://example.com/s</link>
+            <enclosure url="https://img.example.com/photo.png" type="image/png"/>
+          </item>
+        </channel></rss>
+        """
+        let items = RSSFeedParser.parse(Data(xml.utf8))
+        XCTAssertEqual(items.first?.imageURL, "https://img.example.com/photo.png")
+    }
+
+    func testItemWithoutImageHasEmptyImageURL() {
+        let xml = "<rss><channel><item><title>No image</title><link>https://x.com</link></item></channel></rss>"
+        let items = RSSFeedParser.parse(Data(xml.utf8))
+        XCTAssertEqual(items.first?.imageURL, "")
+    }
+
     func testTrimsWhitespaceInTitles() {
         let xml = "<rss><channel><item><title>  Spacey  </title><link> https://x.com </link></item></channel></rss>"
         let items = RSSFeedParser.parse(Data(xml.utf8))

@@ -90,6 +90,9 @@ private struct TopicCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !topic.imageURL.isEmpty, let url = URL(string: topic.imageURL) {
+                ArticleImage(url: url, height: 140)
+            }
             if topic.hasSource {
                 Text(topic.headline)
                     .font(.system(size: 13, weight: .semibold))
