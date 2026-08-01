@@ -40,6 +40,7 @@ enum TopicService {
                     prompt: TopicPromptBuilder.prompt(headline: item.title, languageCode: languageCode, seed: index),
                     articleURL: item.link,
                     publisher: feed.publisher,
+                    imageURL: item.imageURL,
                     languageCode: languageCode
                 )
             }

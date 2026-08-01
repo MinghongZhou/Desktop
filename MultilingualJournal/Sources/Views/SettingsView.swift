@@ -9,7 +9,28 @@ struct SettingsView: View {
     @AppStorage(AppSettings.dailyReminderEnabledKey) private var dailyReminderEnabled: Bool = false
     @AppStorage(AppSettings.dailyReminderMinutesKey) private var reminderMinutes: Int = AppSettings.defaultReminderMinutes
     @AppStorage(AppSettings.newsTopicsEnabledKey) private var newsTopicsEnabled: Bool = true
+    @AppStorage(AppSettings.lastRecordingLocaleKey) private var recordingLocaleID: String = ""
     @State private var reminderPermissionDenied = false
+
+    /// Full recognizer locales (e.g. "en-US") for the recording-language picker.
+    private var availableRecordingLocales: [Locale] {
+        SFSpeechRecognizer.supportedLocales().sorted {
+            (Locale.current.localizedString(forIdentifier: $0.identifier) ?? $0.identifier) <
+            (Locale.current.localizedString(forIdentifier: $1.identifier) ?? $1.identifier)
+        }
+    }
+
+    private var resolvedRecordingID: String {
+        RecordingLocale.resolve(
+            savedIdentifier: recordingLocaleID.isEmpty ? nil : recordingLocaleID,
+            supported: availableRecordingLocales.map(\.identifier),
+            deviceLanguageCode: Locale.current.language.languageCode?.identifier
+        ) ?? Locale.current.identifier
+    }
+
+    private var recordingLanguageName: String {
+        Locale.current.localizedString(forIdentifier: resolvedRecordingID) ?? resolvedRecordingID
+    }
 
     private var reminderTime: Binding<Date> {
         Binding(
@@ -78,6 +99,37 @@ struct SettingsView: View {
                     }
                 }
                 footnote("Gentle corrections only look at sentences detected in this language.")
+
+                Text("Recording language")
+                    .sectionLabel()
+                    .padding(.top, 6)
+                card {
+                    HStack {
+                        Text("Speak in")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Theme.bodyText)
+                        Spacer()
+                        Menu {
+                            Picker("Recording language", selection: $recordingLocaleID) {
+                                ForEach(availableRecordingLocales, id: \.identifier) { locale in
+                                    Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
+                                        .tag(locale.identifier)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(recordingLanguageName)
+                                    .font(.system(size: 14, weight: .semibold))
+                                Image(systemName: "chevron.up.chevron.down").font(.system(size: 11))
+                            }
+                            .foregroundStyle(Theme.accentDeep)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(Theme.accentSoft, in: Capsule())
+                        }
+                    }
+                }
+                footnote("The language voice recordings are transcribed in. Apple's recognizer can't switch languages mid-recording, so set this to match what you'll speak.")
 
                 Text("Topics")
                     .sectionLabel()

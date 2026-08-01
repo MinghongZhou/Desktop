@@ -14,6 +14,8 @@ struct Topic: Identifiable, Hashable, Codable {
     var articleURL: String
     /// Publisher name for attribution ("BBC Mundo"); empty for fallbacks.
     var publisher: String
+    /// A representative article image, if the feed provided one.
+    var imageURL: String = ""
     var languageCode: String
     var fetchedAt: Date = .now
 

@@ -50,10 +50,8 @@ struct NewEntryView: View {
         ) ?? Locale.current.identifier
     }
 
-    /// Picker binding: reads the resolved identifier, writes the user's pick
-    /// straight to persistent storage so it sticks for next time.
-    private var localeSelection: Binding<String> {
-        Binding(get: { resolvedLocaleID }, set: { savedLocaleID = $0 })
+    private var resolvedLanguageName: String {
+        Locale.current.localizedString(forIdentifier: resolvedLocaleID) ?? resolvedLocaleID
     }
 
     /// What the entry would contain right now, including any in-progress
@@ -64,15 +62,19 @@ struct NewEntryView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: 18) {
+                // The screen's title *is* the entry's title — tap to edit.
+                // Placeholder reads "New Entry" so it doubles as the header,
+                // instead of a separate field cluttering the middle.
+                TextField("New Entry", text: $title, axis: .vertical)
+                    .font(Theme.serif(28, weight: .semibold))
+                    .foregroundStyle(Theme.heading)
+                    .lineLimit(1...2)
+                    .padding(.horizontal)
+
                 if let topic {
                     topicBanner(topic)
                 }
-
-                TextField("Title (optional)", text: $title)
-                    .font(.headline)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal)
 
                 Picker("Mode", selection: $mode) {
                     ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -90,7 +92,6 @@ struct NewEntryView: View {
             }
             .padding(.top)
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("New Entry")
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.accentDeep)
             .toolbar {
@@ -121,31 +122,17 @@ struct NewEntryView: View {
 
     private var voiceEntry: some View {
         VStack(spacing: 16) {
-            // Prominent, persistent language selector. Apple's recognizer
-            // can't detect the language or switch mid-recording, so this must
-            // be set before recording — hence the emphasis and helper text.
-            HStack(spacing: 8) {
-                Image(systemName: "globe")
-                    .foregroundStyle(.secondary)
-                Text("Speaking in")
-                    .foregroundStyle(.secondary)
-                Picker("Language", selection: localeSelection) {
-                    ForEach(availableLocales, id: \.identifier) { locale in
-                        Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
-                            .tag(locale.identifier)
-                    }
-                }
-                .labelsHidden()
-                .disabled(speech.isRecording)
+            // Read-only hint only — the recording language is chosen in
+            // Settings now, not here, to keep the recording screen uncluttered.
+            HStack(spacing: 6) {
+                Image(systemName: "globe").font(.caption)
+                Text("Recording in \(resolvedLanguageName)")
+                Text("· change in Settings").foregroundStyle(Theme.secondary.opacity(0.8))
                 Spacer()
             }
+            .font(.caption)
+            .foregroundStyle(Theme.secondary)
             .padding(.horizontal)
-
-            Text("Pick your language before recording — it can't switch languages once you start.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
 
             ScrollView {
                 Text(currentContent.isEmpty ? "Your words will appear here as you speak…" : currentContent)
@@ -211,19 +198,36 @@ struct NewEntryView: View {
     }
 
     private func topicBanner(_ topic: Topic) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Today's topic")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(Theme.accentDeep)
                 .textCase(.uppercase)
+
+            if !topic.imageURL.isEmpty, let url = URL(string: topic.imageURL) {
+                ArticleImage(url: url, height: 130)
+            }
+
             Text(topic.prompt)
                 .font(Theme.serif(17))
                 .foregroundStyle(Theme.heading)
                 .fixedSize(horizontal: false, vertical: true)
+
             if topic.hasSource {
-                Text("via \(topic.publisher)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.secondary)
+                if let url = URL(string: topic.articleURL) {
+                    Link(destination: url) {
+                        HStack(spacing: 4) {
+                            Text("Read on \(topic.publisher)")
+                            Image(systemName: "arrow.up.right")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accentDeep)
+                    }
+                } else {
+                    Text("via \(topic.publisher)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

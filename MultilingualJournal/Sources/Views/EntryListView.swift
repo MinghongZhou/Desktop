@@ -102,6 +102,9 @@ struct EntryListView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.85))
                 }
+                if !topic.imageURL.isEmpty, let url = URL(string: topic.imageURL) {
+                    ArticleImage(url: url, height: 120)
+                }
                 Text(topic.prompt)
                     .font(Theme.serif(18))
                     .foregroundStyle(.white)
