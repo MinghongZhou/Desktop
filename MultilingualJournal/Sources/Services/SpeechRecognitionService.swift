@@ -117,15 +117,24 @@ final class SpeechRecognitionService: ObservableObject {
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
-                self?.handle(result: result, error: error)
+                self?.handle(result: result, error: error, from: request)
             }
         }
     }
 
-    private func handle(result: SFSpeechRecognitionResult?, error: Error?) {
+    private func handle(result: SFSpeechRecognitionResult?, error: Error?, from request: SFSpeechAudioBufferRecognitionRequest) {
         // Ignore callbacks that arrive after the user has stopped (including
         // the cancellation callback triggered by `stopRecording`).
         guard isRecording else { return }
+
+        // Ignore callbacks from a segment we've already rolled past. When we
+        // force a final result (endAudio) and immediately start the next
+        // segment, the old task keeps firing — a completion, then often an
+        // error. Acting on those stale callbacks would call rollOverSegment()
+        // again, nil out the freshly-created request, and orphan its task, so
+        // after a sentence or two no audio reaches the live request and
+        // recognition silently stalls. Only the current request may drive state.
+        guard request === requestBox.request else { return }
 
         if let result {
             transcript = merged(partial: result.bestTranscription.formattedString)
@@ -175,7 +184,32 @@ final class SpeechRecognitionService: ObservableObject {
     private func merged(partial: String) -> String {
         if finalizedText.isEmpty { return partial }
         if partial.isEmpty { return finalizedText }
-        return finalizedText + " " + partial
+        let separator = needsSpaceJoin(after: finalizedText, before: partial) ? " " : ""
+        return finalizedText + separator + partial
+    }
+
+    /// Whether a space belongs between two joined segments. Space-delimited
+    /// scripts (Latin, Cyrillic, …) need one; scripts that don't space between
+    /// words (Chinese, Japanese) must join tight, or multi-sentence entries
+    /// come out with stray gaps like "今天很好 。 我很开心。".
+    private func needsSpaceJoin(after base: String, before addition: String) -> Bool {
+        guard let last = base.unicodeScalars.last,
+              let first = addition.unicodeScalars.first else { return true }
+        return !(isCJK(last) || isCJK(first))
+    }
+
+    private func isCJK(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x3000...0x303F,   // CJK symbols & punctuation （，。！？…）
+             0x3040...0x30FF,   // Hiragana + Katakana
+             0x3400...0x4DBF,   // CJK unified ideographs, extension A
+             0x4E00...0x9FFF,   // CJK unified ideographs
+             0xF900...0xFAFF,   // CJK compatibility ideographs
+             0xFF00...0xFFEF:   // Fullwidth/halfwidth forms
+            return true
+        default:
+            return false
+        }
     }
 
     /// Clears the live transcript. Called by the view after it has folded a
