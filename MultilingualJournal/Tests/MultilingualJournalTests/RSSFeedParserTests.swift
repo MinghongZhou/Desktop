@@ -79,6 +79,39 @@ final class RSSFeedParserTests: XCTestCase {
         XCTAssertEqual(items.first?.imageURL, "")
     }
 
+    func testParsesAndCleansDescriptionSummary() {
+        let xml = """
+        <rss><channel>
+          <item>
+            <title>Volcano erupts</title>
+            <link>https://example.com/v</link>
+            <description><![CDATA[<p>Lava reached the <b>town</b> overnight.</p>]]></description>
+          </item>
+        </channel></rss>
+        """
+        let items = RSSFeedParser.parse(Data(xml.utf8))
+        XCTAssertEqual(items.first?.summary, "Lava reached the town overnight.")
+    }
+
+    func testDropsSummaryThatMerelyRepeatsTitle() {
+        let xml = """
+        <rss><channel>
+          <item><title>Same thing</title><link>https://x.com</link><description>Same thing</description></item>
+        </channel></rss>
+        """
+        let items = RSSFeedParser.parse(Data(xml.utf8))
+        XCTAssertEqual(items.first?.summary, "")
+    }
+
+    func testCapsOverlongSummary() {
+        let long = String(repeating: "a", count: 600)
+        let xml = "<rss><channel><item><title>T</title><link>https://x.com</link><description>\(long)</description></item></channel></rss>"
+        let items = RSSFeedParser.parse(Data(xml.utf8))
+        let summary = items.first?.summary ?? ""
+        XCTAssertLessThanOrEqual(summary.count, 401) // 400 chars + ellipsis
+        XCTAssertTrue(summary.hasSuffix("…"))
+    }
+
     func testTrimsWhitespaceInTitles() {
         let xml = "<rss><channel><item><title>  Spacey  </title><link> https://x.com </link></item></channel></rss>"
         let items = RSSFeedParser.parse(Data(xml.utf8))

@@ -104,6 +104,13 @@ private struct TopicCard: View {
                 .foregroundStyle(Theme.heading)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if !topic.summary.isEmpty {
+                Text(topic.summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(4)
+            }
+
             HStack {
                 if topic.hasSource, let url = URL(string: topic.articleURL) {
                     Link(destination: url) {

@@ -34,14 +34,22 @@ enum TopicService {
             let items = RSSFeedParser.parse(data)
             guard !items.isEmpty else { return evergreenTopics(languageCode: languageCode) }
 
+            // The language the prompt/headline are actually in: the target's own
+            // language when it has a native feed, else English (the fallback
+            // feed). Stored on the topic so recording defaults to that language.
+            let contentLanguage = FeedCatalog.hasNativeFeed(for: languageCode)
+                ? RecordingLocale.languageCode(of: languageCode)
+                : "en"
+
             return items.prefix(limit).map { item in
                 Topic(
                     headline: item.title,
-                    prompt: TopicPromptBuilder.prompt(headline: item.title, languageCode: languageCode),
+                    prompt: TopicPromptBuilder.prompt(headline: item.title, languageCode: contentLanguage),
+                    summary: item.summary,
                     articleURL: item.link,
                     publisher: feed.publisher,
                     imageURL: item.imageURL,
-                    languageCode: languageCode
+                    languageCode: contentLanguage
                 )
             }
         } catch {

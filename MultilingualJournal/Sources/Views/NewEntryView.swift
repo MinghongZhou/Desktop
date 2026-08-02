@@ -30,6 +30,9 @@ struct NewEntryView: View {
     /// keyboard fallback edits it directly.
     @State private var text: String = ""
     @State private var usedVoice = false
+    /// A recording-language pick the user made by hand this session, which
+    /// overrides both the topic default and the saved/learning default.
+    @State private var recordingOverride: String?
     /// Reveals the keyboard fallback editor. Voice stays primary; this only
     /// exists to fix a misrecognition or write when voice is unavailable.
     @State private var isEditingText = false
@@ -57,11 +60,24 @@ struct NewEntryView: View {
             }
     }
 
-    /// The identifier the recognizer will actually use, resolving the saved
-    /// choice against what's supported (falling back to the learning language,
-    /// then the device language).
+    /// A supported recognizer locale whose base language matches `base`, if any
+    /// (e.g. "ja" -> "ja-JP").
+    private func supportedLocale(matching base: String) -> String? {
+        let target = base.lowercased()
+        return availableLocales.first { RecordingLocale.languageCode(of: $0.identifier) == target }?.identifier
+    }
+
+    /// The identifier the recognizer will actually use. A manual pick wins;
+    /// otherwise, when journaling from a topic, record in the prompt's language
+    /// so speech is transcribed correctly and the entry matches what was asked;
+    /// otherwise fall back to the saved / learning / device resolution.
     private var resolvedLocaleID: String {
-        RecordingLocale.resolve(
+        if let recordingOverride { return recordingOverride }
+        if let topic,
+           let match = supportedLocale(matching: RecordingLocale.languageCode(of: topic.languageCode)) {
+            return match
+        }
+        return RecordingLocale.resolve(
             savedIdentifier: savedLocaleID.isEmpty ? nil : savedLocaleID,
             supported: availableLocales.map(\.identifier),
             deviceLanguageCode: Locale.current.language.languageCode?.identifier,
@@ -76,7 +92,10 @@ struct NewEntryView: View {
     /// Shows the currently-resolved locale as selected while writing any change
     /// back to the persisted choice.
     private var recordingSelection: Binding<String> {
-        Binding(get: { resolvedLocaleID }, set: { savedLocaleID = $0 })
+        Binding(get: { resolvedLocaleID }, set: {
+            recordingOverride = $0
+            savedLocaleID = $0
+        })
     }
 
     /// What the entry would contain right now, including any in-progress
@@ -348,6 +367,13 @@ struct NewEntryView: View {
                 .font(Theme.serif(17))
                 .foregroundStyle(Theme.heading)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if !topic.summary.isEmpty {
+                Text(topic.summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if topic.hasSource {
                 if let url = URL(string: topic.articleURL) {
