@@ -10,6 +10,10 @@ struct Topic: Identifiable, Hashable, Codable {
     var headline: String
     /// The full journaling prompt shown to the user (template + headline).
     var prompt: String
+    /// The publisher's article summary (feed `<description>`), in the article's
+    /// language — extra context/reading beyond the headline. Empty for
+    /// evergreen fallbacks or when the feed provided none.
+    var summary: String = ""
     /// Link to the source article; empty for evergreen fallbacks.
     var articleURL: String
     /// Publisher name for attribution ("BBC Mundo"); empty for fallbacks.
