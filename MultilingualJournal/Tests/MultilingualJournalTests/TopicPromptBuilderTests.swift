@@ -2,41 +2,53 @@ import XCTest
 @testable import MultilingualJournal
 
 final class TopicPromptBuilderTests: XCTestCase {
-    func testInsertsHeadlineIntoTemplate() {
-        let prompt = TopicPromptBuilder.prompt(headline: "Coffee prices hit a record", languageCode: "en", seed: 0)
-        XCTAssertTrue(prompt.contains("Coffee prices hit a record"))
+    func testNonEnglishTemplateInsertsHeadline() {
+        // Non-English templates still quote the headline (hand-verified copy).
+        let prompt = TopicPromptBuilder.prompt(headline: "Titular único", languageCode: "es")
+        XCTAssertTrue(prompt.contains("Titular único"))
         XCTAssertFalse(prompt.contains(TopicPromptBuilder.placeholder))
     }
 
-    func testSeedRotatesThroughTemplates() {
-        let a = TopicPromptBuilder.prompt(headline: "X", languageCode: "en", seed: 0)
-        let b = TopicPromptBuilder.prompt(headline: "X", languageCode: "en", seed: 1)
-        XCTAssertNotEqual(a, b)
+    func testEnglishPromptDoesNotRequoteHeadline() {
+        // The headline is shown separately in the card, so English prompts
+        // should ask the question directly rather than re-quote it.
+        let headline = "Coffee prices hit an unusual record today"
+        let prompt = TopicPromptBuilder.prompt(headline: headline, languageCode: "en")
+        XCTAssertFalse(prompt.contains(headline))
+        XCTAssertFalse(prompt.contains(TopicPromptBuilder.placeholder))
+        XCTAssertFalse(prompt.isEmpty)
     }
 
-    func testSeedWrapsAroundPool() {
-        let count = TopicPromptBuilder.newsTemplates["en"]!.count
-        let first = TopicPromptBuilder.prompt(headline: "X", languageCode: "en", seed: 0)
-        let wrapped = TopicPromptBuilder.prompt(headline: "X", languageCode: "en", seed: count)
-        XCTAssertEqual(first, wrapped)
+    func testSelectionIsStableForSameHeadline() {
+        let a = TopicPromptBuilder.prompt(headline: "A stable headline", languageCode: "en")
+        let b = TopicPromptBuilder.prompt(headline: "A stable headline", languageCode: "en")
+        XCTAssertEqual(a, b)
+    }
+
+    func testDifferentHeadlinesSpreadAcrossTemplates() {
+        // Across a batch of headlines we should see more than one template used.
+        let prompts = Set((0..<40).map {
+            TopicPromptBuilder.prompt(headline: "Headline number \($0)", languageCode: "en")
+        })
+        XCTAssertGreaterThan(prompts.count, 1)
     }
 
     func testUsesTargetLanguageTemplate() {
-        let es = TopicPromptBuilder.prompt(headline: "Titular", languageCode: "es", seed: 0)
+        let es = TopicPromptBuilder.prompt(headline: "Titular", languageCode: "es")
         XCTAssertTrue(es.contains("Titular"))
         // A Spanish template contains Spanish-specific punctuation/words.
         XCTAssertTrue(es.contains("¿") || es.lowercased().contains("hoy") || es.contains("«"))
     }
 
     func testFallsBackToEnglishForUnknownLanguage() {
-        let unknown = TopicPromptBuilder.prompt(headline: "Headline", languageCode: "xx", seed: 0)
-        let english = TopicPromptBuilder.prompt(headline: "Headline", languageCode: "en", seed: 0)
+        let unknown = TopicPromptBuilder.prompt(headline: "Headline", languageCode: "xx")
+        let english = TopicPromptBuilder.prompt(headline: "Headline", languageCode: "en")
         XCTAssertEqual(unknown, english)
     }
 
     func testHandlesRegionalCodeByBaseLanguage() {
-        let zhHans = TopicPromptBuilder.prompt(headline: "标题", languageCode: "zh-Hans", seed: 0)
-        let zh = TopicPromptBuilder.prompt(headline: "标题", languageCode: "zh", seed: 0)
+        let zhHans = TopicPromptBuilder.prompt(headline: "标题", languageCode: "zh-Hans")
+        let zh = TopicPromptBuilder.prompt(headline: "标题", languageCode: "zh")
         XCTAssertEqual(zhHans, zh)
     }
 

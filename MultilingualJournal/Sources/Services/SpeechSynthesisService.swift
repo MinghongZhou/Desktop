@@ -28,9 +28,29 @@ final class SpeechSynthesisService: ObservableObject {
         let languageCode = recognizer.dominantLanguage?.rawValue
 
         let utterance = AVSpeechUtterance(string: trimmed)
-        utterance.voice = languageCode.flatMap(AVSpeechSynthesisVoice.init(language:))
+        utterance.voice = languageCode.flatMap(Self.bestVoice(for:))
+        // A touch slower than the default reads as warmer and more human,
+        // which suits a gentle journaling companion.
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
         isSpeaking = true
         synthesizer.speak(utterance)
+    }
+
+    /// Picks the highest-quality installed voice for a language rather than the
+    /// default compact (robotic) tier that `AVSpeechSynthesisVoice(language:)`
+    /// returns. Prefers `.premium`, then `.enhanced`, then `.default`.
+    ///
+    /// NOTE: premium/enhanced voices only exist here if the user has downloaded
+    /// them (Settings → Accessibility → Spoken Content → Voices). When none is
+    /// installed we fall back to the compact voice so speech still works.
+    static func bestVoice(for languageCode: String) -> AVSpeechSynthesisVoice? {
+        let base = languageCode.split(whereSeparator: { $0 == "-" || $0 == "_" })
+            .first.map(String.init)?.lowercased() ?? languageCode.lowercased()
+        let matches = AVSpeechSynthesisVoice.speechVoices().filter {
+            $0.language.lowercased().hasPrefix(base)
+        }
+        let best = matches.max { $0.quality.rawValue < $1.quality.rawValue }
+        return best ?? AVSpeechSynthesisVoice(language: languageCode)
     }
 
     func stop() {

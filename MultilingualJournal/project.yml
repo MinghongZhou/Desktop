@@ -17,6 +17,7 @@ targets:
       path: Sources/Resources/Info.plist
       properties:
         UILaunchScreen: {}
+        CFBundleDisplayName: "Multilingual Journal"
         NSMicrophoneUsageDescription: "Multilingual Journal uses the microphone to record your voice journal entries."
         NSSpeechRecognitionUsageDescription: "Multilingual Journal transcribes your voice entries on-device so you can journal by speaking in any language."
     settings:
@@ -38,6 +39,7 @@ targets:
       base:
         SWIFT_VERSION: "5.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.minghongzhou.MultilingualJournalTests
+        GENERATE_INFOPLIST_FILE: "YES"
 
 schemes:
   MultilingualJournal:

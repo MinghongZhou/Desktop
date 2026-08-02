@@ -24,7 +24,8 @@ struct SettingsView: View {
         RecordingLocale.resolve(
             savedIdentifier: recordingLocaleID.isEmpty ? nil : recordingLocaleID,
             supported: availableRecordingLocales.map(\.identifier),
-            deviceLanguageCode: Locale.current.language.languageCode?.identifier
+            deviceLanguageCode: Locale.current.language.languageCode?.identifier,
+            learningLanguageCode: targetLanguageCode.isEmpty ? nil : targetLanguageCode
         ) ?? Locale.current.identifier
     }
 
@@ -61,6 +62,31 @@ struct SettingsView: View {
             : (Locale.current.localizedString(forLanguageCode: targetLanguageCode) ?? targetLanguageCode)
     }
 
+    /// Options for the learning-language picker: "Not set" plus every language
+    /// the recognizer supports, by localized name.
+    private var learningOptions: [LanguagePickerScreen.Option] {
+        [LanguagePickerScreen.Option(id: "", name: "Not set")]
+            + availableLanguages.map { LanguagePickerScreen.Option(id: $0.code, name: $0.name) }
+    }
+
+    /// Options for the recording-language picker: full recognizer locales.
+    private var recordingOptions: [LanguagePickerScreen.Option] {
+        availableRecordingLocales.map {
+            LanguagePickerScreen.Option(
+                id: $0.identifier,
+                name: Locale.current.localizedString(forIdentifier: $0.identifier) ?? $0.identifier
+            )
+        }
+    }
+
+    private var appVersion: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        if let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String, !build.isEmpty {
+            return "\(short) (\(build))"
+        }
+        return short
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -73,30 +99,16 @@ struct SettingsView: View {
                 Text("Language I'm learning")
                     .sectionLabel()
                 card {
-                    HStack {
-                        Text("Language I'm learning")
-                            .font(.system(size: 15))
-                            .foregroundStyle(Theme.bodyText)
-                        Spacer()
-                        Menu {
-                            Picker("Language I'm learning", selection: $targetLanguageCode) {
-                                Text("Not set").tag("")
-                                ForEach(availableLanguages, id: \.code) { language in
-                                    Text(language.name).tag(language.code)
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(targetLanguageName)
-                                    .font(.system(size: 14, weight: .semibold))
-                                Image(systemName: "chevron.up.chevron.down").font(.system(size: 11))
-                            }
-                            .foregroundStyle(Theme.accentDeep)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(Theme.accentSoft, in: Capsule())
-                        }
+                    NavigationLink {
+                        LanguagePickerScreen(
+                            title: "Language",
+                            options: learningOptions,
+                            selection: $targetLanguageCode
+                        )
+                    } label: {
+                        pickerRow(label: "Language", value: targetLanguageName)
                     }
+                    .buttonStyle(.plain)
                 }
                 footnote("Gentle corrections only look at sentences detected in this language.")
 
@@ -104,30 +116,16 @@ struct SettingsView: View {
                     .sectionLabel()
                     .padding(.top, 6)
                 card {
-                    HStack {
-                        Text("Speak in")
-                            .font(.system(size: 15))
-                            .foregroundStyle(Theme.bodyText)
-                        Spacer()
-                        Menu {
-                            Picker("Recording language", selection: $recordingLocaleID) {
-                                ForEach(availableRecordingLocales, id: \.identifier) { locale in
-                                    Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
-                                        .tag(locale.identifier)
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(recordingLanguageName)
-                                    .font(.system(size: 14, weight: .semibold))
-                                Image(systemName: "chevron.up.chevron.down").font(.system(size: 11))
-                            }
-                            .foregroundStyle(Theme.accentDeep)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(Theme.accentSoft, in: Capsule())
-                        }
+                    NavigationLink {
+                        LanguagePickerScreen(
+                            title: "Recording language",
+                            options: recordingOptions,
+                            selection: $recordingLocaleID
+                        )
+                    } label: {
+                        pickerRow(label: "Speak in", value: recordingLanguageName)
                     }
+                    .buttonStyle(.plain)
                 }
                 footnote("The language voice recordings are transcribed in. Apple's recognizer can't switch languages mid-recording, so set this to match what you'll speak.")
 
@@ -171,6 +169,27 @@ struct SettingsView: View {
                 } else {
                     footnote("A single gentle nudge each day. Scheduled on this device only — nothing is sent anywhere.")
                 }
+
+                Text("About")
+                    .sectionLabel()
+                    .padding(.top, 6)
+                card {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Version")
+                                .font(.system(size: 15))
+                                .foregroundStyle(Theme.bodyText)
+                            Spacer()
+                            Text(appVersion)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Theme.secondary)
+                        }
+                        Divider()
+                        Text("Everything stays on this device. Your journal entries are never uploaded, and the companion and gentle corrections run fully on-device.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.secondary)
+                    }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
@@ -183,6 +202,26 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// A tappable settings row showing a label and the current value with a
+    /// disclosure chevron, styled to match the warm capsule value pills.
+    private func pickerRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.bodyText)
+            Spacer()
+            HStack(spacing: 4) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                Image(systemName: "chevron.right").font(.system(size: 11))
+            }
+            .foregroundStyle(Theme.accentDeep)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Theme.accentSoft, in: Capsule())
+        }
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -214,6 +253,61 @@ struct SettingsView: View {
         }
         reminderPermissionDenied = false
         ReminderService.schedule(hour: reminderMinutes / 60, minute: reminderMinutes % 60)
+    }
+}
+
+/// A reusable, searchable language-selection screen. Scales to the ~40+
+/// recognizer languages far better than a flat `Menu`, and is shared by both
+/// the learning-language and recording-language settings.
+struct LanguagePickerScreen: View {
+    struct Option: Identifiable, Hashable {
+        /// The value written to the binding: a language code, a locale
+        /// identifier, or "" for the "Not set" option.
+        let id: String
+        let name: String
+    }
+
+    let title: String
+    let options: [Option]
+    @Binding var selection: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filtered: [Option] {
+        guard !query.isEmpty else { return options }
+        return options.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(filtered) { option in
+                Button {
+                    selection = option.id
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(option.name)
+                            .font(.system(size: 16))
+                            .foregroundStyle(Theme.bodyText)
+                        Spacer()
+                        if option.id == selection {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Theme.accentDeep)
+                        }
+                    }
+                }
+                .listRowBackground(Theme.card)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .searchable(text: $query, prompt: "Search languages")
+        .autocorrectionDisabled(true)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(Theme.accentDeep)
     }
 }
 

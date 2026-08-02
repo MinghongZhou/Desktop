@@ -1,10 +1,17 @@
 import SwiftUI
 import Speech
+import AVFoundation
 
+/// Entry capture is voice-first: speaking is the only primary input. A small
+/// keyboard fallback ("Fix text") is kept solely to correct a misrecognition,
+/// or to write the entry when the recognizer is unavailable for the chosen
+/// language — it is never the front-and-center way in.
 struct NewEntryView: View {
     /// When present, the entry is being written in response to a Topic: its
     /// prompt is shown as a banner and its article is cited on the saved entry.
     var topic: Topic? = nil
+    /// Called with the freshly-saved entry so the presenter can open it.
+    var onSaved: (JournalEntry) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -15,18 +22,28 @@ struct NewEntryView: View {
     /// time. Empty until the user has picked once; resolved against the
     /// recognizer's supported locales at use time.
     @AppStorage(AppSettings.lastRecordingLocaleKey) private var savedLocaleID: String = ""
-    /// Single source of truth for the entry's content, shared across voice
-    /// and text modes. Voice dictation appends to it; the text editor edits
-    /// it directly — so switching modes never loses what's already there.
-    @State private var text: String = ""
-    @State private var title: String = ""
-    @State private var mode: Mode = .voice
-    @State private var usedVoice = false
-    @State private var showingPermissionAlert = false
+    /// The language being learned, used to seed a sensible default recording
+    /// locale before the user has chosen one.
+    @AppStorage(AppSettings.targetLanguageCodeKey) private var targetLanguageCode: String = ""
 
-    private enum Mode: String, CaseIterable {
-        case voice = "Voice"
-        case text = "Text"
+    /// The entry's content. Voice dictation appends to it; the optional
+    /// keyboard fallback edits it directly.
+    @State private var text: String = ""
+    @State private var usedVoice = false
+    /// Reveals the keyboard fallback editor. Voice stays primary; this only
+    /// exists to fix a misrecognition or write when voice is unavailable.
+    @State private var isEditingText = false
+    @State private var showingPriming = false
+    @State private var recordingError: RecordingError?
+    @State private var recordingErrorText = ""
+
+    /// Distinguishes a permissions problem (fixable in Settings) from the
+    /// recognizer/model being unavailable for the chosen language (recoverable
+    /// by typing or changing the language) — they need different copy.
+    private enum RecordingError: Identifiable {
+        case permissionDenied
+        case recognizerUnavailable
+        var id: Int { hashValue }
     }
 
     /// All locales the on-device recognizer supports, sorted for a picker.
@@ -41,17 +58,25 @@ struct NewEntryView: View {
     }
 
     /// The identifier the recognizer will actually use, resolving the saved
-    /// choice against what's supported (falling back to device language).
+    /// choice against what's supported (falling back to the learning language,
+    /// then the device language).
     private var resolvedLocaleID: String {
         RecordingLocale.resolve(
             savedIdentifier: savedLocaleID.isEmpty ? nil : savedLocaleID,
             supported: availableLocales.map(\.identifier),
-            deviceLanguageCode: Locale.current.language.languageCode?.identifier
+            deviceLanguageCode: Locale.current.language.languageCode?.identifier,
+            learningLanguageCode: targetLanguageCode.isEmpty ? nil : targetLanguageCode
         ) ?? Locale.current.identifier
     }
 
     private var resolvedLanguageName: String {
         Locale.current.localizedString(forIdentifier: resolvedLocaleID) ?? resolvedLocaleID
+    }
+
+    /// Shows the currently-resolved locale as selected while writing any change
+    /// back to the persisted choice.
+    private var recordingSelection: Binding<String> {
+        Binding(get: { resolvedLocaleID }, set: { savedLocaleID = $0 })
     }
 
     /// What the entry would contain right now, including any in-progress
@@ -63,35 +88,17 @@ struct NewEntryView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 18) {
-                // The screen's title *is* the entry's title — tap to edit.
-                // Placeholder reads "New Entry" so it doubles as the header,
-                // instead of a separate field cluttering the middle.
-                TextField("New Entry", text: $title, axis: .vertical)
-                    .font(Theme.serif(28, weight: .semibold))
-                    .foregroundStyle(Theme.heading)
-                    .lineLimit(1...2)
-                    .padding(.horizontal)
-
                 if let topic {
                     topicBanner(topic)
                 }
 
-                Picker("Mode", selection: $mode) {
-                    ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-
-                if mode == .voice {
-                    voiceEntry
-                } else {
-                    textEntry
-                }
+                voiceEntry
 
                 Spacer()
             }
             .padding(.top)
             .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("New Entry")
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.accentDeep)
             .toolbar {
@@ -106,75 +113,182 @@ struct NewEntryView: View {
                         .disabled(currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .onChange(of: mode) { _, newMode in
-                // Leaving voice mode mid-recording: stop and keep the text.
-                if newMode == .text, speech.isRecording {
-                    foldRecording()
+            .alert(
+                recordingErrorTitle,
+                isPresented: Binding(
+                    get: { recordingError != nil },
+                    set: { if !$0 { recordingError = nil } }
+                ),
+                presenting: recordingError
+            ) { kind in
+                switch kind {
+                case .permissionDenied:
+                    Button("OK", role: .cancel) {}
+                case .recognizerUnavailable:
+                    // No text mode to fall back to anymore — offer the keyboard
+                    // editor so the entry can still be written.
+                    Button("Type instead") {
+                        isEditingText = true
+                        recordingError = nil
+                    }
+                    Button("Cancel", role: .cancel) {}
                 }
+            } message: { _ in
+                Text(recordingErrorText)
             }
-            .alert("Permission needed", isPresented: $showingPermissionAlert, presenting: speech.authorizationError) { _ in
-                Button("OK", role: .cancel) {}
-            } message: { message in
-                Text(message)
+            .sheet(isPresented: $showingPriming) {
+                permissionPrimingSheet
             }
         }
     }
 
+    private var recordingErrorTitle: String {
+        switch recordingError {
+        case .permissionDenied: return "Permission needed"
+        case .recognizerUnavailable: return "Language unavailable"
+        case .none: return ""
+        }
+    }
+
+    /// Shown once, before the system prompts, so a cold "Don't Allow" is less
+    /// likely. Only presented when authorization hasn't been decided yet.
+    private var permissionPrimingSheet: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "mic.circle.fill")
+                .font(.system(size: 54))
+                .foregroundStyle(Theme.accent)
+            Text("Journal by voice")
+                .font(Theme.serif(24))
+                .foregroundStyle(Theme.heading)
+            Text("To transcribe your voice on-device, the app needs the microphone and speech recognition. Nothing is uploaded — transcription happens right here on your iPhone.")
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.bodyText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            Button("Continue") {
+                showingPriming = false
+                beginRecordingFlow()
+            }
+            .buttonStyle(TerracottaButtonStyle())
+            Button("Not now") { showingPriming = false }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.secondary)
+        }
+        .padding(28)
+        .presentationDetents([.medium])
+        .background(Theme.bg.ignoresSafeArea())
+    }
+
     private var voiceEntry: some View {
         VStack(spacing: 16) {
-            // Read-only hint only — the recording language is chosen in
-            // Settings now, not here, to keep the recording screen uncluttered.
+            // Inline, one-tap recording-language switch — the decision happens
+            // right here, just before speaking. Disabled mid-recording since
+            // the recognizer can't change locale on the fly.
             HStack(spacing: 6) {
-                Image(systemName: "globe").font(.caption)
-                Text("Recording in \(resolvedLanguageName)")
-                Text("· change in Settings").foregroundStyle(Theme.secondary.opacity(0.8))
+                Menu {
+                    Picker("Recording language", selection: recordingSelection) {
+                        ForEach(availableLocales, id: \.identifier) { locale in
+                            Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
+                                .tag(locale.identifier)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "globe").font(.caption)
+                        Text("Recording in \(resolvedLanguageName)")
+                            .font(.caption.weight(.semibold))
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 10))
+                    }
+                    .foregroundStyle(Theme.accentDeep)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Theme.accentSoft, in: Capsule())
+                }
+                .disabled(speech.isRecording)
                 Spacer()
             }
-            .font(.caption)
-            .foregroundStyle(Theme.secondary)
             .padding(.horizontal)
 
-            ScrollView {
-                Text(currentContent.isEmpty ? "Your words will appear here as you speak…" : currentContent)
-                    .font(.system(size: 16))
-                    .foregroundStyle(currentContent.isEmpty ? Theme.secondary : Theme.bodyText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-            }
-            .frame(minHeight: 200)
-            .warmCard()
-            .padding(.horizontal)
+            transcriptCard
 
-            Button {
-                toggleRecording()
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(speech.isRecording ? Theme.accentDeep : Theme.accent)
-                        .frame(width: 78, height: 78)
-                    if speech.isRecording {
-                        RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: 26, height: 26)
-                    } else {
-                        Image(systemName: "mic.fill").font(.system(size: 30)).foregroundStyle(.white)
+            recordButton
+        }
+    }
+
+    /// The dictated text. Read-only while listening; tapping "Fix text" flips
+    /// it into an editable keyboard fallback for correcting a misrecognition.
+    private var transcriptCard: some View {
+        Group {
+            if isEditingText {
+                TextEditor(text: $text)
+                    // Off protects multilingual writing — English autocorrect
+                    // mangles other languages as you type.
+                    .autocorrectionDisabled(true)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 200)
+                    .padding(8)
+                    .warmCard()
+                    .padding(.horizontal)
+                    .overlay(alignment: .bottomTrailing) {
+                        Button {
+                            isEditingText = false
+                        } label: {
+                            Label("Done", systemImage: "checkmark.circle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Theme.accent, in: Capsule())
+                        }
+                        .padding(20)
+                    }
+            } else {
+                ScrollView {
+                    Text(currentContent.isEmpty ? "Tap the mic and just talk — your words appear here." : currentContent)
+                        .font(.system(size: 16))
+                        .foregroundStyle(currentContent.isEmpty ? Theme.secondary : Theme.bodyText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .frame(minHeight: 200)
+                .warmCard()
+                .padding(.horizontal)
+                .overlay(alignment: .bottomTrailing) {
+                    // Keyboard fallback for fixing what voice got wrong. Only
+                    // once there's text to fix and we're not actively recording.
+                    if !currentContent.isEmpty && !speech.isRecording {
+                        Button {
+                            isEditingText = true
+                        } label: {
+                            Label("Fix text", systemImage: "keyboard")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Theme.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Theme.neutral, in: Capsule())
+                        }
+                        .padding(20)
                     }
                 }
             }
         }
     }
 
-    private var textEntry: some View {
-        TextEditor(text: $text)
-            .frame(minHeight: 240)
-            .padding(.horizontal)
-            .overlay(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("Write today's entry, in whatever language(s) feel right…")
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                        .allowsHitTesting(false)
+    private var recordButton: some View {
+        Button {
+            toggleRecording()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(speech.isRecording ? Theme.accentDeep : Theme.accent)
+                    .frame(width: 78, height: 78)
+                if speech.isRecording {
+                    RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: 26, height: 26)
+                } else {
+                    Image(systemName: "mic.fill").font(.system(size: 30)).foregroundStyle(.white)
                 }
             }
+        }
     }
 
     private func toggleRecording() {
@@ -182,17 +296,39 @@ struct NewEntryView: View {
             foldRecording()
             return
         }
+        // Recording takes over as the source of truth; leave the keyboard
+        // fallback so the live transcript is visible.
+        isEditingText = false
+        // Prime with an in-app explanation before the system prompts, but only
+        // the first time (when authorization hasn't been decided yet).
+        if needsPermissionPriming {
+            showingPriming = true
+        } else {
+            beginRecordingFlow()
+        }
+    }
+
+    /// True when neither speech recognition nor the microphone has been decided
+    /// yet, so a priming screen is worthwhile before the system dialogs.
+    private var needsPermissionPriming: Bool {
+        SFSpeechRecognizer.authorizationStatus() == .notDetermined
+            || AVAudioApplication.shared.recordPermission == .undetermined
+    }
+
+    private func beginRecordingFlow() {
         Task {
             let authorized = await speech.requestAuthorization()
             guard authorized else {
-                showingPermissionAlert = true
+                recordingErrorText = speech.authorizationError
+                    ?? "Enable the microphone and speech recognition in Settings to journal by voice."
+                recordingError = .permissionDenied
                 return
             }
             do {
                 try speech.startRecording(locale: Locale(identifier: resolvedLocaleID))
             } catch {
-                speech.authorizationError = error.localizedDescription
-                showingPermissionAlert = true
+                recordingErrorText = error.localizedDescription
+                recordingError = .recognizerUnavailable
             }
         }
     }
@@ -267,11 +403,12 @@ struct NewEntryView: View {
         let segments = LanguageSegmenter.segment(text)
         guard !segments.isEmpty else { return }
 
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let entry = JournalEntry(
             segments: segments,
+            // Voice is the primary path; the keyboard fallback only ever
+            // corrects a voice draft, so treat a used recording as voice.
             source: usedVoice ? .voice : .text,
-            title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+            title: nil,
             sourceHeadline: topic?.hasSource == true ? topic?.headline : nil,
             sourceURL: topic?.hasSource == true ? topic?.articleURL : nil,
             sourcePublisher: topic?.hasSource == true ? topic?.publisher : nil
@@ -280,6 +417,9 @@ struct NewEntryView: View {
         // Flush immediately rather than relying on autosave timing, so the
         // entry survives even if the app is backgrounded/killed right after.
         try? modelContext.save()
+        // Hand the saved entry back so the presenter can open it (momentum:
+        // the just-written entry is the ideal moment to reflect or talk).
+        onSaved(entry)
         dismiss()
     }
 }

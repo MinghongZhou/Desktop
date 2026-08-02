@@ -12,22 +12,33 @@ enum RecordingLocale {
     ///   - savedIdentifier: the previously chosen locale identifier, if any.
     ///   - supported: locale identifiers the recognizer supports.
     ///   - deviceLanguageCode: the device's language code (e.g. "en", "zh").
+    ///   - learningLanguageCode: the language the user is learning, if set. When
+    ///     the user hasn't picked a recording locale yet, seeding from what
+    ///     they're studying is a far better default than the device language —
+    ///     a Spanish learner on an English phone should record in Spanish.
     /// - Returns: the identifier to record with, or nil if nothing is supported.
     static func resolve(
         savedIdentifier: String?,
         supported: [String],
-        deviceLanguageCode: String?
+        deviceLanguageCode: String?,
+        learningLanguageCode: String? = nil
     ) -> String? {
         // 1. The saved choice, if it's still supported.
         if let savedIdentifier, supported.contains(savedIdentifier) {
             return savedIdentifier
         }
-        // 2. A supported locale matching the device's language.
+        // 2. A supported locale matching the language the user is learning —
+        //    the smartest default when they haven't chosen one yet.
+        if let learningLanguageCode, !learningLanguageCode.isEmpty,
+           let match = supported.first(where: { languageCode(of: $0) == learningLanguageCode.lowercased() }) {
+            return match
+        }
+        // 3. A supported locale matching the device's language.
         if let deviceLanguageCode,
            let match = supported.first(where: { languageCode(of: $0) == deviceLanguageCode }) {
             return match
         }
-        // 3. Anything supported, or nil if the list is empty.
+        // 4. Anything supported, or nil if the list is empty.
         return supported.first
     }
 
