@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import Speech
 
 /// On-demand companion chat for a single entry. The entry's text is always
@@ -10,6 +11,9 @@ import Speech
 /// the recognizer is unavailable for the chosen language).
 struct CompanionChatView: View {
     @Bindable var entry: JournalEntry
+    /// All entries, so the companion can privately recall relevant past ones
+    /// (see `MemoryService`) when it opens the conversation.
+    @Query(sort: \JournalEntry.date, order: .reverse) private var allEntries: [JournalEntry]
     @Environment(\.dismiss) private var dismiss
 
     @State private var draft: String = ""
@@ -293,8 +297,15 @@ struct CompanionChatView: View {
             ? entry.companionMessages
             : Array(entry.companionMessages.dropLast())
 
+        // Give the companion memory of past entries only on the opening
+        // reflection — later turns already have the conversation as context,
+        // so re-sending it every message would be redundant.
+        let memory = newUserMessage == nil
+            ? MemoryService.context(for: entry, from: allEntries)
+            : nil
+
         do {
-            let reply = try await CompanionService.reply(to: entry, history: history, newUserMessage: newUserMessage)
+            let reply = try await CompanionService.reply(to: entry, history: history, newUserMessage: newUserMessage, memory: memory)
             entry.companionMessages.append(CompanionMessage(role: .companion, text: reply))
             if autoSpeakReplies {
                 speech.speak(reply)

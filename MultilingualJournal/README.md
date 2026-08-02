@@ -29,6 +29,14 @@ sentence's language rather than flattening the entry to one.
   optional daily reminder notification.
 - Vocabulary growth for the language you're learning: distinct words used,
   how many are new in the last 30 days, and a sample of recent first-uses.
+- Real fluency-over-time on the Trends tab: the share of each entry written
+  in your target language, trended as a line chart, plus your code-switch
+  rate — all computed from your own writing (`FluencyAnalyzer`), no fabricated
+  scores. Universal / offline / no AI.
+- The companion privately remembers: on the opening reflection it's given a
+  short context block of your relevant earlier entries (`MemoryService`,
+  selected by keyword overlap + recency) so it can thread them across time.
+  All on-device; entries never leave the phone.
 
 **Not yet built:** widget / Siri Shortcut entry point. That one needs a
 separate app-extension target (App Intents + a new bundle in `project.yml`),
