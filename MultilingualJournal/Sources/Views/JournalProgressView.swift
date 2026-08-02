@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 
 /// The "Trends" tab: streak + vocabulary progress in the warm design language.
 /// Framed as encouragement rather than assessment — see `VocabularyStats` for
@@ -25,6 +26,11 @@ struct JournalProgressView: View {
     private var vocabulary: VocabularyStats {
         guard !targetLanguageCode.isEmpty else { return .empty }
         return VocabularyAnalyzer.stats(for: entries, languageCode: targetLanguageCode, since: windowStart)
+    }
+
+    private var fluency: FluencySummary {
+        guard !targetLanguageCode.isEmpty else { return .empty }
+        return FluencyAnalyzer.summary(for: entries, targetCode: targetLanguageCode)
     }
 
     private var targetLanguageName: String {
@@ -60,6 +66,8 @@ struct JournalProgressView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .warmCard()
                 } else {
+                    fluencySection
+
                     Text("\(targetLanguageName) vocabulary")
                         .sectionLabel()
                         .padding(.top, 6)
@@ -87,6 +95,84 @@ struct JournalProgressView: View {
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// Real fluency growth from the user's own writing — how much of the target
+    /// language they use, trended over time, plus the app's signature
+    /// code-switch metric. No fabricated scores.
+    @ViewBuilder
+    private var fluencySection: some View {
+        Text("\(targetLanguageName) fluency")
+            .sectionLabel()
+            .padding(.top, 6)
+
+        if fluency.hasTrend {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    StatTile(
+                        label: "In \(targetLanguageName)",
+                        value: "\(Int((fluency.currentTargetRatio * 100).rounded()))",
+                        unit: "% of words",
+                        tone: .sage
+                    )
+                    StatTile(
+                        label: "Code-switches",
+                        value: String(format: "%.1f", fluency.codeSwitchRate),
+                        unit: "per entry",
+                        tone: .terracotta
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Share of \(targetLanguageName) per entry")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.secondary)
+                    Chart(fluency.points, id: \.date) { point in
+                        AreaMark(
+                            x: .value("Date", point.date),
+                            y: .value("Target", point.targetRatio)
+                        )
+                        .foregroundStyle(Theme.accent.opacity(0.15))
+                        .interpolationMethod(.catmullRom)
+                        LineMark(
+                            x: .value("Date", point.date),
+                            y: .value("Target", point.targetRatio)
+                        )
+                        .foregroundStyle(Theme.accent)
+                        .interpolationMethod(.catmullRom)
+                    }
+                    .chartYScale(domain: 0...1)
+                    .chartYAxis(.hidden)
+                    .chartXAxis(.hidden)
+                    .frame(height: 120)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .warmCard()
+
+                if abs(fluency.ratioDelta) >= 0.03 {
+                    Text(trendSentence)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.secondary)
+                }
+            }
+        } else {
+            Text("Write a few entries in \(targetLanguageName) to see your fluency trend here.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.secondary)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .warmCard()
+        }
+    }
+
+    private var trendSentence: String {
+        let pct = Int((abs(fluency.ratioDelta) * 100).rounded())
+        if fluency.ratioDelta > 0 {
+            return "You're leaning on \(targetLanguageName) about \(pct)% more than in your earlier entries — nice progress."
+        } else {
+            return "You've used a bit less \(targetLanguageName) lately (down ~\(pct)%). That's normal — mixing languages is fine."
+        }
     }
 
     /// A weekday-aligned 4-week heatmap. Columns are fixed weekdays (with

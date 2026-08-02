@@ -53,7 +53,8 @@ enum CompanionService {
     static func reply(
         to entry: JournalEntry,
         history: [CompanionMessage],
-        newUserMessage: String?
+        newUserMessage: String?,
+        memory: String? = nil
     ) async throws -> String {
         #if canImport(FoundationModels)
         guard #available(iOS 26.0, *) else {
@@ -62,7 +63,8 @@ enum CompanionService {
         return try await OnDeviceCompanion.reply(
             entryText: entry.fullText,
             history: history,
-            newUserMessage: newUserMessage
+            newUserMessage: newUserMessage,
+            memory: memory
         )
         #else
         // Built with an SDK that predates Foundation Models (Xcode < 26). Note
@@ -81,8 +83,13 @@ enum CompanionService {
     /// Builds the single prompt describing the entry and conversation so far.
     /// Shared with the on-device path (kept here, free of framework types, so
     /// it's easy to reason about and adjust).
-    static func buildPrompt(entryText: String, history: [CompanionMessage], newUserMessage: String?) -> String {
-        var lines = ["The person's journal entry:", "\"\"\"", entryText, "\"\"\""]
+    static func buildPrompt(entryText: String, history: [CompanionMessage], newUserMessage: String?, memory: String? = nil) -> String {
+        var lines: [String] = []
+        if let memory, !memory.isEmpty {
+            lines.append(memory)
+            lines.append("")
+        }
+        lines.append(contentsOf: ["The person's journal entry:", "\"\"\"", entryText, "\"\"\""])
 
         if !history.isEmpty {
             lines.append("")
@@ -110,7 +117,7 @@ enum CompanionService {
 #if canImport(FoundationModels)
 @available(iOS 26.0, *)
 private enum OnDeviceCompanion {
-    static func reply(entryText: String, history: [CompanionMessage], newUserMessage: String?) async throws -> String {
+    static func reply(entryText: String, history: [CompanionMessage], newUserMessage: String?, memory: String?) async throws -> String {
         switch SystemLanguageModel.default.availability {
         case .available:
             break
@@ -124,7 +131,8 @@ private enum OnDeviceCompanion {
         let prompt = CompanionService.buildPrompt(
             entryText: entryText,
             history: history,
-            newUserMessage: newUserMessage
+            newUserMessage: newUserMessage,
+            memory: memory
         )
 
         do {
