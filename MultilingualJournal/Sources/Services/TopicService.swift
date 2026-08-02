@@ -34,10 +34,10 @@ enum TopicService {
             let items = RSSFeedParser.parse(data)
             guard !items.isEmpty else { return evergreenTopics(languageCode: languageCode) }
 
-            return items.prefix(limit).enumerated().map { index, item in
+            return items.prefix(limit).map { item in
                 Topic(
                     headline: item.title,
-                    prompt: TopicPromptBuilder.prompt(headline: item.title, languageCode: languageCode, seed: index),
+                    prompt: TopicPromptBuilder.prompt(headline: item.title, languageCode: languageCode),
                     articleURL: item.link,
                     publisher: feed.publisher,
                     imageURL: item.imageURL,

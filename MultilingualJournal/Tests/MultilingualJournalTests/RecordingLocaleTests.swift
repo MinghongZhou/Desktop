@@ -22,6 +22,36 @@ final class RecordingLocaleTests: XCTestCase {
         XCTAssertEqual(result, "es-ES")
     }
 
+    func testSeedsFromLearningLanguageWhenNoSavedChoice() {
+        let result = RecordingLocale.resolve(
+            savedIdentifier: nil,
+            supported: supported,
+            deviceLanguageCode: "en",
+            learningLanguageCode: "zh"
+        )
+        XCTAssertEqual(result, "zh-Hans-CN")
+    }
+
+    func testSavedChoiceStillWinsOverLearningLanguage() {
+        let result = RecordingLocale.resolve(
+            savedIdentifier: "fr-FR",
+            supported: supported,
+            deviceLanguageCode: "en",
+            learningLanguageCode: "zh"
+        )
+        XCTAssertEqual(result, "fr-FR")
+    }
+
+    func testFallsBackToDeviceWhenLearningLanguageUnsupported() {
+        let result = RecordingLocale.resolve(
+            savedIdentifier: nil,
+            supported: supported,
+            deviceLanguageCode: "es",
+            learningLanguageCode: "de"
+        )
+        XCTAssertEqual(result, "es-ES")
+    }
+
     func testIgnoresSavedChoiceThatIsNoLongerSupported() {
         let result = RecordingLocale.resolve(
             savedIdentifier: "de-DE",

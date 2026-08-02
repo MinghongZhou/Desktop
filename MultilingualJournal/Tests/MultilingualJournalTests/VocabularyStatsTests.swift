@@ -68,6 +68,27 @@ final class VocabularyStatsTests: XCTestCase {
         XCTAssertEqual(stats, .empty)
     }
 
+    func testStopwordsAreExcludedFromEnglishCounts() {
+        // "the", "was", "a", "really", "good", "day" are stopwords; only
+        // "wonderful" and "picnic" should count.
+        let entries = [entry("The picnic was a really good wonderful day", language: "en", date: daysAgo(1))]
+        let stats = VocabularyAnalyzer.stats(for: entries, languageCode: "en", since: daysAgo(30))
+        XCTAssertEqual(stats.totalUniqueWords, 2)
+        XCTAssertFalse(stats.recentNewWords.contains("day"))
+        XCTAssertFalse(stats.recentNewWords.contains("was"))
+        XCTAssertTrue(stats.recentNewWords.contains("wonderful"))
+    }
+
+    func testStopwordsAreExcludedFromSpanishCounts() {
+        // "muy", "con", "el" are Spanish stopwords; "contento" and "progreso" count.
+        let entries = [entry("Estoy muy contento con el progreso", language: "es", date: daysAgo(1))]
+        let stats = VocabularyAnalyzer.stats(for: entries, languageCode: "es", since: daysAgo(30))
+        XCTAssertFalse(stats.recentNewWords.contains("muy"))
+        XCTAssertFalse(stats.recentNewWords.contains("con"))
+        XCTAssertTrue(stats.recentNewWords.contains("contento"))
+        XCTAssertTrue(stats.recentNewWords.contains("progreso"))
+    }
+
     func testSampleLimitCapsReturnedWords() {
         let text = (1...20).map { "palabra\($0)" }.joined(separator: " ")
         let entries = [entry(text, language: "es", date: daysAgo(1))]

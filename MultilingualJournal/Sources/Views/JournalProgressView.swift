@@ -89,24 +89,72 @@ struct JournalProgressView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    /// A 4-week heatmap of days with entries, in the terracotta accent.
+    /// A weekday-aligned 4-week heatmap. Columns are fixed weekdays (with
+    /// header labels), the intensity grows with entries per day, and today's
+    /// cell is ringed so "when did I practice" is actually readable.
     private var calendar: some View {
         let cal = Calendar.current
-        let days = Set(entries.map { cal.startOfDay(for: $0.date) })
         let today = cal.startOfDay(for: .now)
-        let cells = (0..<28).reversed().map { offset -> Bool in
-            guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { return false }
-            return days.contains(day)
+        let weeks = 4
+
+        // Entry counts per day, so cells can intensity-shade.
+        var counts: [Date: Int] = [:]
+        for entry in entries {
+            counts[cal.startOfDay(for: entry.date), default: 0] += 1
         }
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
-            ForEach(cells.indices, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(cells[i] ? Theme.accent : Theme.line)
-                    .aspectRatio(1, contentMode: .fit)
+
+        // Column 0 is the calendar's first weekday; find today's column so the
+        // grid's last row ends on today, aligned to the weekday headers.
+        let weekday = cal.component(.weekday, from: today)
+        let todayColumn = (weekday - cal.firstWeekday + 7) % 7
+
+        // Weekday header symbols, rotated to start at the calendar's firstWeekday.
+        let symbols = cal.veryShortStandaloneWeekdaySymbols
+        let headers = (0..<7).map { symbols[(cal.firstWeekday - 1 + $0) % 7] }
+
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 7)
+
+        return VStack(spacing: 6) {
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(0..<7, id: \.self) { col in
+                    Text(headers[col])
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(0..<(weeks * 7), id: \.self) { index in
+                    let row = index / 7
+                    let col = index % 7
+                    let dayOffset = (weeks - 1 - row) * 7 + (todayColumn - col)
+                    calendarCell(dayOffset: dayOffset, today: today, counts: counts, cal: cal)
+                }
             }
         }
         .padding(16)
         .warmCard()
+    }
+
+    @ViewBuilder
+    private func calendarCell(dayOffset: Int, today: Date, counts: [Date: Int], cal: Calendar) -> some View {
+        if dayOffset < 0 {
+            // Future days in the current week: keep the grid rectangular but empty.
+            Color.clear.aspectRatio(1, contentMode: .fit)
+        } else {
+            let day = cal.date(byAdding: .day, value: -dayOffset, to: today) ?? today
+            let count = counts[day] ?? 0
+            let isToday = dayOffset == 0
+            RoundedRectangle(cornerRadius: 6)
+                .fill(count > 0 ? Theme.accent.opacity(min(1.0, 0.55 + 0.15 * Double(count))) : Theme.line)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if isToday {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Theme.accentDeep, lineWidth: 2)
+                    }
+                }
+        }
     }
 }
 

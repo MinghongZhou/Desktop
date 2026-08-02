@@ -34,7 +34,8 @@ enum VocabularyAnalyzer {
 
         for entry in entries.sorted(by: { $0.date < $1.date }) {
             for segment in entry.segments where segment.languageCode == languageCode {
-                for word in words(in: segment.text) where firstUse[word] == nil {
+                for word in words(in: segment.text)
+                where firstUse[word] == nil && !isStopword(word, languageCode: languageCode) {
                     firstUse[word] = entry.date
                 }
             }
@@ -52,6 +53,46 @@ enum VocabularyAnalyzer {
             recentNewWords: newWords.prefix(sampleLimit).map(\.key)
         )
     }
+
+    /// The language portion of a code ("en-US" -> "en"), lowercased.
+    private static func base(_ code: String) -> String {
+        code.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init)?.lowercased()
+            ?? code.lowercased()
+    }
+
+    /// Whether a (already lowercased) word is a trivial function/filler word in
+    /// the given language. Filtering these keeps "distinct words" and "new
+    /// words" meaningful as a signal of vocabulary growth — "was, day, really"
+    /// shouldn't read as earned vocabulary.
+    static func isStopword(_ word: String, languageCode: String) -> Bool {
+        stopwords[base(languageCode)]?.contains(word) ?? false
+    }
+
+    /// Small, deliberately conservative stopword lists. English + Spanish are
+    /// covered per the polish spec; other languages simply aren't filtered
+    /// (they fall through to counting everything, as before).
+    static let stopwords: [String: Set<String>] = [
+        "en": [
+            "the", "a", "an", "and", "or", "but", "if", "then", "so", "as", "of",
+            "to", "in", "on", "at", "by", "for", "with", "from", "into", "about",
+            "is", "am", "are", "was", "were", "be", "been", "being", "do", "does",
+            "did", "have", "has", "had", "will", "would", "can", "could", "should",
+            "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us",
+            "them", "my", "your", "his", "its", "our", "their", "this", "that",
+            "these", "those", "there", "here", "not", "no", "yes", "just", "very",
+            "really", "too", "also", "than", "some", "any", "all", "good", "day",
+            "today", "up", "out", "so", "like",
+        ],
+        "es": [
+            "el", "la", "los", "las", "un", "una", "unos", "unas", "y", "o", "u",
+            "pero", "que", "de", "del", "en", "a", "al", "con", "por", "para",
+            "sin", "se", "su", "sus", "mi", "mis", "tu", "tus", "lo", "le", "les",
+            "me", "te", "nos", "es", "era", "soy", "eres", "son", "fue", "muy",
+            "más", "menos", "no", "sí", "ya", "yo", "él", "ella", "ellos", "este",
+            "esta", "esto", "ese", "esa", "eso", "día", "hoy", "bueno", "buena",
+            "como", "cuando", "porque", "también",
+        ],
+    ]
 
     /// Word-tokenizes text and normalizes for counting. Uses `NLTokenizer`
     /// rather than splitting on spaces so languages without spaces between

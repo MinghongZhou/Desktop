@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct EntryListView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \JournalEntry.date, order: .reverse) private var entries: [JournalEntry]
     @AppStorage(AppSettings.targetLanguageCodeKey) private var targetLanguageCode: String = ""
     @AppStorage(AppSettings.newsTopicsEnabledKey) private var newsEnabled: Bool = true
@@ -9,6 +10,11 @@ struct EntryListView: View {
     @State private var searchText = ""
     @State private var todaysTopic: Topic?
     @State private var topicForEntry: Topic?
+    @State private var path: [JournalEntry] = []
+    @State private var entryPendingDeletion: JournalEntry?
+    /// Set by the New Entry sheet on save so we can push into the new entry
+    /// once the sheet finishes dismissing (pushing mid-dismiss is janky).
+    @State private var justSavedEntry: JournalEntry?
 
     private var visibleEntries: [JournalEntry] {
         EntrySearch.filter(entries, query: searchText)
@@ -25,7 +31,7 @@ struct EntryListView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
@@ -49,10 +55,11 @@ struct EntryListView: View {
                                 .padding(.vertical, 8)
                         } else {
                             ForEach(visibleEntries) { entry in
-                                NavigationLink(value: entry) {
-                                    EntryCard(entry: entry)
-                                }
-                                .buttonStyle(.plain)
+                                DeletableEntryRow(
+                                    entry: entry,
+                                    onTap: { path.append(entry) },
+                                    onRequestDelete: { entryPendingDeletion = entry }
+                                )
                             }
                         }
                     }
@@ -72,11 +79,25 @@ struct EntryListView: View {
             .navigationDestination(for: JournalEntry.self) { entry in
                 EntryDetailView(entry: entry)
             }
-            .sheet(isPresented: $isPresentingNewEntry) {
-                NewEntryView()
+            .sheet(isPresented: $isPresentingNewEntry, onDismiss: openJustSavedEntry) {
+                NewEntryView(onSaved: { justSavedEntry = $0 })
             }
-            .sheet(item: $topicForEntry) { topic in
-                NewEntryView(topic: topic)
+            .sheet(item: $topicForEntry, onDismiss: openJustSavedEntry) { topic in
+                NewEntryView(topic: topic, onSaved: { justSavedEntry = $0 })
+            }
+            .confirmationDialog(
+                "Delete this entry?",
+                isPresented: Binding(
+                    get: { entryPendingDeletion != nil },
+                    set: { if !$0 { entryPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: entryPendingDeletion
+            ) { entry in
+                Button("Delete", role: .destructive) { delete(entry) }
+                Button("Cancel", role: .cancel) { entryPendingDeletion = nil }
+            } message: { _ in
+                Text("This can't be undone.")
             }
             .task {
                 if todaysTopic == nil {
@@ -85,6 +106,20 @@ struct EntryListView: View {
                 }
             }
         }
+    }
+
+    private func delete(_ entry: JournalEntry) {
+        modelContext.delete(entry)
+        try? modelContext.save()
+        entryPendingDeletion = nil
+    }
+
+    /// Called after the New Entry sheet fully dismisses. If an entry was just
+    /// saved, push into its detail so the user can immediately reflect on it.
+    private func openJustSavedEntry() {
+        guard let entry = justSavedEntry else { return }
+        justSavedEntry = nil
+        path.append(entry)
     }
 
     private func todaysTopicCard(_ topic: Topic) -> some View {
@@ -219,6 +254,76 @@ struct EntryListView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 20)
+    }
+}
+
+/// An entry row with a decisive swipe-to-delete. The screen is a ScrollView of
+/// custom cards (not a `List`), where a lingering "reveal, then tap the button"
+/// affordance is unreliable — the revealed button's tap gets swallowed by the
+/// card. So a deliberate left swipe past a threshold triggers the delete
+/// confirmation directly; a red trash slides in behind as visual feedback. The
+/// gesture only engages when the drag is clearly horizontal, leaving vertical
+/// scrolling and the row's tap-to-open intact.
+private struct DeletableEntryRow: View {
+    let entry: JournalEntry
+    let onTap: () -> Void
+    let onRequestDelete: () -> Void
+
+    @State private var offset: CGFloat = 0
+    private let maxReveal: CGFloat = 92
+    /// How far left the row must be dragged to arm the delete confirmation.
+    private let triggerThreshold: CGFloat = 80
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Delete affordance that slides into view as the card is dragged.
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.red)
+                .overlay(alignment: .trailing) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white)
+                        .padding(.trailing, 28)
+                }
+                .opacity(offset < -6 ? 1 : 0)
+
+            // A plain card (not a NavigationLink) so the swipe gesture wins
+            // arbitration inside the ScrollView. Navigation is driven
+            // programmatically on tap; the horizontal drag reveals delete and
+            // a simultaneous gesture keeps vertical scrolling intact.
+            EntryCard(entry: entry)
+                // Opaque background so the delete action stays hidden when closed.
+                .background(Theme.bg)
+                .offset(x: offset)
+                .contentShape(Rectangle())
+                .onTapGesture { onTap() }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { value in
+                            // Left-only, clearly-horizontal drags reveal delete.
+                            guard value.translation.width < 0,
+                                  abs(value.translation.width) > abs(value.translation.height) else { return }
+                            offset = max(-maxReveal, value.translation.width)
+                        }
+                        .onEnded { value in
+                            let decisiveLeftSwipe = value.translation.width < -triggerThreshold
+                                && abs(value.translation.width) > abs(value.translation.height)
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                offset = 0
+                            }
+                            // Fire after the snap-back so the confirmation
+                            // dialog isn't presented mid-animation.
+                            if decisiveLeftSwipe { onRequestDelete() }
+                        }
+                )
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                onRequestDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 

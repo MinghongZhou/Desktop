@@ -12,12 +12,27 @@ import Foundation
 enum TopicPromptBuilder {
     static let placeholder = "{headline}"
 
-    /// Builds a prompt for a headline. `seed` rotates through the template
-    /// pool so consecutive topics don't all use the same framing.
-    static func prompt(headline: String, languageCode: String, seed: Int) -> String {
+    /// Builds a prompt for a headline. The template is chosen by a stable hash
+    /// of the headline, so the same article always gets the same framing across
+    /// refreshes (no jitter when the feed reorders), while different headlines
+    /// spread across the pool instead of all reading identically.
+    static func prompt(headline: String, languageCode: String) -> String {
         let pool = newsTemplates[base(languageCode)] ?? newsTemplates["en"]!
-        let template = pool[abs(seed) % pool.count]
+        let template = pool[stableIndex(for: headline, count: pool.count)]
         return template.replacingOccurrences(of: placeholder, with: headline)
+    }
+
+    /// A deterministic index into a pool of `count`, derived from `string` via
+    /// FNV-1a. Unlike `Hashable.hashValue` (per-process seeded), this is stable
+    /// across launches, so a headline maps to the same template every time.
+    static func stableIndex(for string: String, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        var hash: UInt64 = 1469598103934665603 // FNV-1a offset basis
+        for byte in string.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1099511628211 // FNV-1a prime
+        }
+        return Int(hash % UInt64(count))
     }
 
     /// An evergreen prompt for when no article is available (feed down or
@@ -33,12 +48,15 @@ enum TopicPromptBuilder {
     }
 
     static let newsTemplates: [String: [String]] = [
+        // The headline is already shown above the prompt in the Topics card,
+        // so the English prompts ask the reflective question directly instead
+        // of re-quoting it verbatim.
         "en": [
-            "In the news today: “{headline}”. What's your reaction? Does it connect to anything in your own life?",
-            "Here's a headline: “{headline}”. How does it make you feel, and why?",
-            "Someone just read you this: “{headline}”. What would you say back?",
-            "Today's story: “{headline}”. Have you experienced anything like this?",
-            "“{headline}” — talk through what you think about this.",
+            "What's your reaction to today's headline? Does it connect to anything in your own life?",
+            "How does today's story make you feel, and why?",
+            "If a friend brought this up, what would you say back?",
+            "Have you ever experienced anything like this?",
+            "Talk through what you think about today's story.",
         ],
         "es": [
             "Hoy en las noticias: «{headline}». ¿Qué opinas? ¿Te recuerda a algo de tu vida?",
