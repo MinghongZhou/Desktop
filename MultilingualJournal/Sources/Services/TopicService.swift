@@ -1,67 +1,38 @@
 import Foundation
 
-/// Fetches news-based journaling topics: picks a target-language RSS feed,
-/// downloads and parses it, and turns each headline into a prompt via
-/// `TopicPromptBuilder`. Fails soft — if news is disabled, the feed is
-/// unreachable, or parsing yields nothing, it returns evergreen prompts so
-/// the feature always has something to show.
+/// Entry point the UI calls for journaling topics. Assembles the enabled
+/// `TopicSource`s, mixes them via `TopicAggregator`, and falls back to evergreen
+/// prompts when nothing is available (news off, feeds down, empty results) so
+/// the Topics tab always has something to show.
 ///
-/// Only feed-fetching touches the network; journal entries never leave the
+/// Only source-fetching touches the network; journal entries never leave the
 /// device.
 enum TopicService {
     /// - Parameters:
     ///   - languageCode: the user's target language (drives feed + prompt language).
-    ///   - newsEnabled: when false, skips the network entirely and returns evergreen.
-    ///   - limit: max news topics to return.
+    ///   - newsEnabled: when false, the news source is excluded.
+    ///   - limit: max topics to return.
     static func fetchTopics(languageCode: String, newsEnabled: Bool, limit: Int = 6) async -> [Topic] {
-        guard newsEnabled else { return evergreenTopics(languageCode: languageCode) }
+        let sources = enabledSources(newsEnabled: newsEnabled)
+        let topics = await TopicAggregator.topics(from: sources, languageCode: languageCode, limit: limit)
+        return topics.isEmpty ? evergreenTopics(languageCode: languageCode) : topics
+    }
 
-        let feed = FeedCatalog.feed(for: languageCode)
-        guard let url = URL(string: feed.url) else {
-            return evergreenTopics(languageCode: languageCode)
-        }
-
-        do {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 12
-            request.setValue("MultilingualJournal/1.0", forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                return evergreenTopics(languageCode: languageCode)
-            }
-
-            let items = RSSFeedParser.parse(data)
-            guard !items.isEmpty else { return evergreenTopics(languageCode: languageCode) }
-
-            // The language the prompt/headline are actually in: the target's own
-            // language when it has a native feed, else English (the fallback
-            // feed). Stored on the topic so recording defaults to that language.
-            let contentLanguage = FeedCatalog.hasNativeFeed(for: languageCode)
-                ? RecordingLocale.languageCode(of: languageCode)
-                : "en"
-
-            return items.prefix(limit).map { item in
-                Topic(
-                    headline: item.title,
-                    prompt: TopicPromptBuilder.prompt(headline: item.title, languageCode: contentLanguage),
-                    summary: item.summary,
-                    articleURL: item.link,
-                    publisher: feed.publisher,
-                    imageURL: item.imageURL,
-                    languageCode: contentLanguage
-                )
-            }
-        } catch {
-            return evergreenTopics(languageCode: languageCode)
-        }
+    /// The sources to draw from, given current preferences. As new sources land
+    /// (on-this-day, word-of-day, personal), they're added here behind their
+    /// own toggles.
+    static func enabledSources(newsEnabled: Bool) -> [TopicSource] {
+        var sources: [TopicSource] = []
+        if newsEnabled { sources.append(NewsSource()) }
+        return sources
     }
 
     /// Evergreen prompts with no article citation. Used as the fail-soft
-    /// fallback and when news is turned off.
+    /// fallback and when every source is off.
     static func evergreenTopics(languageCode: String, count: Int = 3) -> [Topic] {
         (0..<count).map { index in
             Topic(
+                sourceKind: .evergreen,
                 headline: "",
                 prompt: TopicPromptBuilder.evergreen(languageCode: languageCode, seed: index),
                 articleURL: "",

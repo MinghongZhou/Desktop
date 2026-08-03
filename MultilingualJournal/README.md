@@ -18,8 +18,10 @@ sentence's language rather than flattening the entry to one.
   "language I'm learning" — up to 2 suggestions per entry, warm tone, never
   auto-shown. Also on-device.
 - Entries can be given an optional title (searchable; shown in the timeline).
-- Topics: current news (via target-language RSS feeds) turned into journaling
-  prompts, with the article cited on any entry written about it.
+- Topics: journaling prompts from pluggable sources (`TopicSource` +
+  `TopicAggregator`) — currently news via target-language RSS feeds, mixed and
+  badged by source, with the article cited on any entry written about it.
+  On-this-day, word-of-day, and personal sources are planned conformers.
 - Companion replies are spoken aloud (`AVSpeechSynthesizer`), voice matched
   to each reply's detected language. On by default, toggleable in Settings;
   any reply can be replayed (or stopped) by tapping its speaker icon.

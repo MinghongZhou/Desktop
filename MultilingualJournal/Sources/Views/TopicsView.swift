@@ -90,6 +90,15 @@ private struct TopicCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if topic.sourceKind != .evergreen {
+                Text(topic.sourceKind.displayName)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.accentDeep)
+                    .textCase(.uppercase)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Theme.accentSoft, in: Capsule())
+            }
             if !topic.imageURL.isEmpty, let url = URL(string: topic.imageURL) {
                 ArticleImage(url: url, height: 140)
             }
